@@ -32,6 +32,103 @@ CodeOrbit AI is positioned to close that gap.
 - It includes platform packaging for desktop and artifact packaging for CLI and VS Code.
 - It is easier to explain internally because the product is organized around shipping work, not only chatting with models.
 
+## Obvious Pain Points We Solve
+
+These are not abstract AI problems. They are the practical reasons teams get stuck when they try to use coding agents in real work.
+
+### 1. Teams get locked into one model vendor
+
+Pain point:
+- A lot of coding tools only work well with one hosted model provider.
+- That makes it hard to use Ollama, LM Studio, or a cheaper fallback when cost, privacy, or rate limits matter.
+
+How CodeOrbit AI solves it:
+- The same product surfaces support Ollama, LM Studio, OpenAI, Anthropic, OpenRouter, and OpenAI-compatible endpoints.
+- The provider layer is implemented once and reused across the web app, CLI, desktop app, and VS Code extension.
+
+Why that matters:
+- You keep the workflow and swap the model, instead of rebuilding the workflow every time the provider changes.
+
+### 2. AI tools start risky runs without checking whether the task is actually ready
+
+Pain point:
+- Most tools let you send a prompt immediately, even if credentials are missing, the scope is too broad, or the task obviously needs review first.
+- That creates failed runs, wasted tokens, and risky patches.
+
+How CodeOrbit AI solves it:
+- `Release Gate Preflight` scores readiness before execution.
+- It checks model selection, endpoint strategy, credential readiness, workspace-context quality, and release risk.
+- It can mark a run as `go`, `needs-review`, or `blocked` before the first model call starts.
+
+Why that matters:
+- The user gets stopped before an unsafe run, not after a bad output or broken release.
+
+### 3. Teams do not know what a prompt might break
+
+Pain point:
+- Prompt-based tools usually help generate code, but they do not tell you what else will be affected.
+- That means release risk stays invisible until much later.
+
+How CodeOrbit AI solves it:
+- `Blast Radius Simulator` estimates impacted areas, required checks, watchouts, and release blockers from the task and workspace context.
+- It turns prompt scope into a visible risk score and a concrete validation plan.
+
+Why that matters:
+- The team sees the likely cost of the change before editing starts.
+
+### 4. Acceptance criteria stay vague, so AI output is hard to review
+
+Pain point:
+- Prompts often say “build this” or “improve that,” but do not define deliverables, validation, or rollback expectations.
+- Reviewers then have to guess what “done” means.
+
+How CodeOrbit AI solves it:
+- `Release Contract Generator` converts the prompt into explicit deliverables, validations, and rollback clauses.
+- The contract is generated in the workbench before and during the run.
+
+Why that matters:
+- Review becomes objective instead of subjective.
+
+### 5. One model answer is treated like truth
+
+Pain point:
+- Teams often trust the first model response without checking whether another model would disagree on the plan, edge cases, or implementation route.
+- That is especially risky for release-sensitive work.
+
+How CodeOrbit AI solves it:
+- `Model Jury` runs the same task across multiple recommended model lanes.
+- The preflight layer can recommend jury members automatically for higher-risk work.
+- The jury view compares ballots, failures, and synthesis in one place.
+
+Why that matters:
+- You can compare before committing, instead of discovering disagreement after code lands.
+
+### 6. Failed runs do not make the next run smarter
+
+Pain point:
+- When a model call fails, most tools just return an error string.
+- The user is left to guess whether the problem was auth, network, missing model, or scope.
+
+How CodeOrbit AI solves it:
+- `Ops Ledger` records request outcomes, durations, and recovery notes.
+- `Recovery Playbook` turns common failures into specific next-step guidance.
+
+Why that matters:
+- Retry quality improves because the tool explains what to do next.
+
+### 7. Shipping stalls because docs and rollout notes are done last
+
+Pain point:
+- Even after the code is ready, teams still need README updates, feature summaries, launch notes, and release messaging.
+- That work often gets skipped or delayed.
+
+How CodeOrbit AI solves it:
+- `Ship Memo Autowriter` produces public-facing rollout notes from the prompt, contract, blast radius, and latest model output.
+- The docs site and README are part of the same product surface, not an afterthought.
+
+Why that matters:
+- The repo is easier to share publicly and easier to explain internally.
+
 ## Signature Features
 
 These are the headline features this repo now centers on for public differentiation:
