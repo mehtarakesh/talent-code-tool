@@ -53,7 +53,7 @@ Generate public-facing rollout notes, README snippets, and launch summaries dire
 
 ## Comparison
 
-The Claude Code benchmark is based on Anthropic's public Claude Code documentation. `OpenConsole` could not be confidently tied to a single canonical public spec during this pass, so the comparison below uses the common baseline of browser-first multi-provider consoles. See [docs/talent-code-tool-gap-analysis.md](docs/talent-code-tool-gap-analysis.md).
+The Claude Code benchmark is based on Anthropic's public Claude Code documentation. `OpenConsole` could not be confidently tied to a single canonical public spec during this pass, so the comparison below uses the common baseline of browser-first multi-provider consoles.
 
 | Capability | Claude Code style workflow | OpenConsole-style console | CodeOrbit |
 | --- | --- | --- | --- |
@@ -74,9 +74,7 @@ Current CodeOrbit AI footprint in this repo:
 - 6 provider families supported: Ollama, LM Studio, OpenAI, Anthropic, OpenRouter, OpenAI-compatible
 - 14 Next.js page routes in `apps/web/src/app`
 - 2 Talent web API routes
-- 1 packaged VS Code VSIX
-- 1 packaged CLI tarball
-- 2 packaged macOS desktop artifacts from this verification run: ZIP and DMG
+- 3 installable app surfaces alongside the web product
 
 ## Surfaces
 
@@ -105,11 +103,7 @@ Code:
 
 Code:
 
-- `apps/talent-code-tool-vscode/src/extension.ts`
-
-Artifact:
-
-- `apps/talent-code-tool-vscode/talent-code-tool-vscode-0.1.0.vsix`
+- `apps/codeorbit-ai-vscode/src/extension.ts`
 
 ### Desktop App
 
@@ -119,14 +113,9 @@ Artifact:
 
 Code:
 
-- `apps/talent-code-tool-desktop/src/main.ts`
-- `apps/talent-code-tool-desktop/src/preload.ts`
-- `apps/talent-code-tool-desktop/src/renderer/index.html`
-
-Artifacts produced on March 17, 2026:
-
-- `apps/talent-code-tool-desktop/dist/Talent Code Tool-0.1.0-arm64-mac.zip`
-- `apps/talent-code-tool-desktop/dist/Talent Code Tool-0.1.0-arm64.dmg`
+- `apps/codeorbit-ai-desktop/src/main.ts`
+- `apps/codeorbit-ai-desktop/src/preload.ts`
+- `apps/codeorbit-ai-desktop/src/renderer/index.html`
 
 ### CLI
 
@@ -136,11 +125,7 @@ Artifacts produced on March 17, 2026:
 
 Code:
 
-- `apps/talent-code-tool-cli/src/cli.ts`
-
-Artifact:
-
-- `apps/talent-code-tool-cli/talent-code-tool-cli-0.1.0.tgz`
+- `apps/codeorbit-ai-cli/src/cli.ts`
 
 ## Provider Support
 
@@ -212,14 +197,7 @@ Successful checks:
 - Live web API prompt against local Ollama using `qwen2.5-coder:7b`
 - Live CLI prompt against local Ollama using `qwen2.5-coder:7b`
 
-Detailed run results are in:
-
-- `docs/reports/verification-report-2026-03-17.md`
-
-## Repo Docs
-
-- Gap analysis: `docs/talent-code-tool-gap-analysis.md`
-- Verification report: `docs/reports/verification-report-2026-03-17.md`
+This publish repo contains the product surfaces only. The verification and gap-analysis documents live in the original working repository.
 
 ## Sources For The Comparison Framing
 
