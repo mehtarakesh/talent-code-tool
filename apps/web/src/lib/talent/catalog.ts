@@ -80,6 +80,10 @@ export const featureColumns = [
     title: 'Release Contract + Ship Memo',
     detail: 'Turn prompts into explicit acceptance criteria and public-facing rollout notes in the same session.',
   },
+  {
+    title: 'Release Gate Preflight',
+    detail: 'Score readiness, catch missing credentials or weak workspace context, and stop unsafe runs before they start.',
+  },
 ]
 
 export const innovationFeatureCards: InnovationFeatureCard[] = [
@@ -94,6 +98,10 @@ export const innovationFeatureCards: InnovationFeatureCard[] = [
   {
     title: 'Release Contract Generator',
     detail: 'Transforms vague prompts into deliverables, validations, and rollback clauses that reviewers can enforce.',
+  },
+  {
+    title: 'Release Gate Preflight',
+    detail: 'Adds a real release gate with readiness scoring, blocked checks, recommended jury members, and retry playbooks.',
   },
   {
     title: 'Ops Ledger',
@@ -154,12 +162,19 @@ export const comparisonRows = [
     openConsole: 'No',
     talent: 'Yes',
   },
+  {
+    feature: 'Preflight release gate before model execution',
+    claudeCode: 'No',
+    openConsole: 'No',
+    talent: 'Yes',
+  },
 ]
 
 export const releaseChecklist = [
   'Provider configured and reachable',
   'Prompt plan reviewed before generation',
   'Patch summary captured for reviewers',
+  'Release preflight gate reviewed',
   'Validation commands pass locally',
   'Extension package builds successfully',
   'Website docs and pricing updated',
@@ -238,7 +253,12 @@ export const docsSections = [
   {
     id: 'signature-features',
     title: 'Signature Features',
-    body: 'The current public-share build centers on five signature features: Model Jury, Blast Radius Simulator, Release Contract Generator, Ops Ledger, and Ship Memo Autowriter.',
+    body: 'The current public-share build centers on five signature features plus a release gate layer: Model Jury, Blast Radius Simulator, Release Contract Generator, Ops Ledger, Ship Memo Autowriter, and Release Gate Preflight.',
+  },
+  {
+    id: 'release-gate',
+    title: 'Release Gate Preflight',
+    body: 'Before a run starts, the preflight engine scores readiness, validates credentials and endpoint strategy, flags missing workspace context, recommends jury members, and blocks obviously unsafe release attempts.',
   },
   {
     id: 'providers',

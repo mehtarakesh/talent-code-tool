@@ -37,7 +37,7 @@ export default function DocsPage() {
                   <p className="mt-2 text-sm leading-7 text-slate-200">{feature.painPoint}</p>
                   <p className="mt-4 text-sm uppercase tracking-[0.25em] text-slate-400">What it changes</p>
                   <p className="mt-2 text-sm leading-7 text-slate-200">{feature.outcome}</p>
-                  <p className="mt-4 text-sm uppercase tracking-[0.25em] text-slate-400">How Talent implements it</p>
+                  <p className="mt-4 text-sm uppercase tracking-[0.25em] text-slate-400">How CodeOrbit AI implements it</p>
                   <p className="mt-2 text-sm leading-7 text-slate-200">{feature.implementation}</p>
                 </div>
               ))}
@@ -48,6 +48,7 @@ export default function DocsPage() {
             <pre className="mt-5 overflow-auto rounded-3xl bg-slate-900 p-5 text-sm leading-7 text-slate-100">
 {`npm install
 npm run build:web
+npm run test:web
 npm run build:extension
 npm run build:desktop
 npm run build:cli

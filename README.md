@@ -34,7 +34,7 @@ CodeOrbit AI is positioned to close that gap.
 
 ## Signature Features
 
-These are the five headline features this repo now centers on for public differentiation:
+These are the headline features this repo now centers on for public differentiation:
 
 1. `Model Jury`
 Run the same task across multiple model ballots and compare disagreement, speed, and output quality before committing to a risky path.
@@ -45,10 +45,13 @@ Estimate which surfaces a change will hit and where validation effort needs to g
 3. `Release Contract Generator`
 Turn prompts into explicit deliverables, validations, and rollback clauses instead of relying on implied acceptance criteria.
 
-4. `Ops Ledger`
+4. `Release Gate Preflight`
+Score readiness before generation, block unsafe runs, recommend jury members, and generate a recovery playbook before the first risky request leaves the app.
+
+5. `Ops Ledger`
 Track run history, failures, and next-step recovery guidance so the tool gets better after failed attempts instead of just erroring out.
 
-5. `Ship Memo Autowriter`
+6. `Ship Memo Autowriter`
 Generate public-facing rollout notes, README snippets, and launch summaries directly from the working session.
 
 ## Comparison
@@ -64,6 +67,7 @@ The Claude Code benchmark is based on Anthropic's public Claude Code documentati
 | Desktop app target | No | Usually no | Yes |
 | CLI target | Partial | Usually no | Yes |
 | Release-oriented docs and download center | No | No | Yes |
+| Preflight release gate before model execution | No | No | Yes |
 | Enterprise positioning without single-vendor lock-in | Partial | Partial | Yes |
 
 ## Repo Stats
@@ -73,8 +77,8 @@ Current CodeOrbit AI footprint in this repo:
 - 4 user-facing surfaces: web, desktop, CLI, VS Code
 - 6 provider families supported: Ollama, LM Studio, OpenAI, Anthropic, OpenRouter, OpenAI-compatible
 - 14 Next.js page routes in `apps/web/src/app`
-- 2 Talent web API routes
-- 3 installable app surfaces alongside the web product
+- 3 Talent web API routes, including a preflight release gate
+- Core unit tests around preflight, provider routing helpers, and release heuristics
 
 ## Surfaces
 
@@ -85,6 +89,7 @@ Current CodeOrbit AI footprint in this repo:
 - Docs
 - Pricing
 - Browser workbench with provider switching
+- Release gate preflight with readiness scoring and blocked-check enforcement
 
 Code:
 
@@ -147,6 +152,7 @@ npm install
 
 # Build surfaces
 npm run build:web
+npm run test:web
 npm run build:extension
 npm run build:desktop
 npm run build:cli
@@ -187,17 +193,17 @@ Successful checks:
 
 - `npm install`
 - `npm run build:web`
+- `npm run test:web`
 - `npm run build:extension`
 - `npm run build:desktop`
 - `npm run build:cli`
-- `npm run package:extension`
-- `npm run package:cli`
-- `npm run package:desktop`
-- Web smoke checks for `/`, `/app`, `/docs`, `/download`, `/pricing`, and `/api/talent/providers`
-- Live web API prompt against local Ollama using `qwen2.5-coder:7b`
-- Live CLI prompt against local Ollama using `qwen2.5-coder:7b`
+- `npm run build:extension`
+- `npm run build:desktop`
+- `npm run build:cli`
+- Web smoke checks for `/api/talent/providers` and `/api/talent/preflight`
+- 9 passing unit tests for provider helpers, release heuristics, and preflight gating
 
-This publish repo contains the product surfaces only. The verification and gap-analysis documents live in the original working repository.
+This publish repo contains the source-ready product surfaces and the root workspace manifest needed to build them together.
 
 ## Sources For The Comparison Framing
 

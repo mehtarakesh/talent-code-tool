@@ -1,0 +1,26 @@
+{
+  "name": "codeorbit-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Model-agnostic AI coding workspace for web, desktop, CLI, and VS Code.",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "build:web": "cd apps/web && npm run build",
+    "test:web": "cd apps/web && npm run test",
+    "build:extension": "cd apps/codeorbit-ai-vscode && npm run build",
+    "build:desktop": "cd apps/codeorbit-ai-desktop && npm run build",
+    "build:cli": "cd apps/codeorbit-ai-cli && npm run build",
+    "package:extension": "cd apps/codeorbit-ai-vscode && npm run package",
+    "package:desktop": "cd apps/codeorbit-ai-desktop && npm run package",
+    "package:desktop:mac": "cd apps/codeorbit-ai-desktop && npm run package:mac",
+    "package:desktop:win": "cd apps/codeorbit-ai-desktop && npm run package:win",
+    "package:desktop:linux": "cd apps/codeorbit-ai-desktop && npm run package:linux",
+    "package:cli": "cd apps/codeorbit-ai-cli && npm pack"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "rm -rf .next && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run src/lib/talent/innovation.test.ts src/lib/talent/preflight.test.ts src/lib/talent/provider-client.test.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
@@ -14,7 +15,7 @@
     "axios": "^1.6.5",
     "clsx": "^2.1.0",
     "lucide-react": "^0.577.0",
-    "next": "15.0.3",
+    "next": "15.0.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tailwind-merge": "^2.2.1",
@@ -27,9 +28,10 @@
     "@types/react-dom": "^18.2.18",
     "autoprefixer": "^10.4.17",
     "eslint": "^8.56.0",
-    "eslint-config-next": "15.0.3",
+    "eslint-config-next": "15.0.7",
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^3.2.4"
   }
 }

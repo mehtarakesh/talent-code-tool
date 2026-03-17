@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 
-import { providerCatalog, releaseChecklist } from '@/lib/talent/catalog'
+import { innovationFeatureCards, providerCatalog, releaseChecklist } from '@/lib/talent/catalog'
+import { buildBlastRadius, buildOpsSuggestion, buildReleaseContract, buildShipMemo } from '@/lib/talent/innovation'
+import type { PreflightAssessment } from '@/lib/talent/preflight'
 
 type ProviderRecord = {
   id: string
@@ -19,6 +21,23 @@ type ApiResult = {
   baseUrl: string
 }
 
+type JuryBallot = {
+  provider: string
+  model: string
+  ok: boolean
+  durationMs: number
+  output?: string
+  error?: string
+}
+
+type LedgerEntry = {
+  provider: string
+  model: string
+  status: 'success' | 'error'
+  durationMs: number
+  note: string
+}
+
 const starterPrompt = 'Review the selected workspace, suggest the implementation plan, produce the patch strategy, and define the release validation steps.'
 
 export function TalentWorkbench() {
@@ -30,6 +49,9 @@ export function TalentWorkbench() {
   const [workspaceContext, setWorkspaceContext] = useState('apps/web and apps/api are the active code surfaces. Focus on coding-assistant UX, release readiness, provider interoperability, and docs parity.')
   const [prompt, setPrompt] = useState(starterPrompt)
   const [result, setResult] = useState<ApiResult | null>(null)
+  const [jury, setJury] = useState<{ ballots: JuryBallot[]; synthesis: string } | null>(null)
+  const [preflight, setPreflight] = useState<PreflightAssessment | null>(null)
+  const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -70,11 +92,44 @@ export function TalentWorkbench() {
     setModel(activeProvider.models[0] || '')
   }, [activeProvider])
 
+  async function runPreflight() {
+    const response = await fetch('/api/talent/preflight', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        provider,
+        model,
+        baseUrl,
+        apiKey,
+        prompt,
+        workspaceContext,
+      }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Preflight request failed.')
+    }
+
+    setPreflight(data)
+    return data as PreflightAssessment
+  }
+
   async function runPrompt() {
     setLoading(true)
     setError('')
+    const startedAt = Date.now()
 
     try {
+      const assessment = await runPreflight()
+
+      if (assessment.gate === 'blocked') {
+        throw new Error(assessment.summary)
+      }
+
       const response = await fetch('/api/talent/chat', {
         method: 'POST',
         headers: {
@@ -97,15 +152,94 @@ export function TalentWorkbench() {
       }
 
       setResult(data)
+      setLedger((current) => {
+        const nextEntry: LedgerEntry = {
+          provider,
+          model,
+          status: 'success',
+          durationMs: Date.now() - startedAt,
+          note: 'Primary run completed successfully.',
+        }
+
+        return [nextEntry, ...current].slice(0, 6)
+      })
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Request failed.')
+      const message = requestError instanceof Error ? requestError.message : 'Request failed.'
+      setError(message)
+      setLedger((current) => {
+        const nextEntry: LedgerEntry = {
+          provider,
+          model,
+          status: 'error',
+          durationMs: Date.now() - startedAt,
+          note: buildOpsSuggestion(message, provider, model),
+        }
+
+        return [nextEntry, ...current].slice(0, 6)
+      })
     } finally {
       setLoading(false)
     }
   }
 
+  async function runJury() {
+    setLoading(true)
+    setError('')
+
+    try {
+      const assessment = preflight || (await runPreflight())
+      const members = assessment.juryRecommendation.map((entry) => ({
+        provider: entry.provider,
+        model: entry.model,
+        baseUrl: entry.baseUrl,
+        apiKey: entry.provider === provider ? apiKey : undefined,
+      }))
+
+      const response = await fetch('/api/talent/jury', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt,
+          workspaceContext,
+          members,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Talent jury request failed.')
+      }
+
+      setJury(data)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Jury request failed.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const releaseContract = useMemo(() => buildReleaseContract(prompt, workspaceContext), [prompt, workspaceContext])
+  const blastRadius = useMemo(() => buildBlastRadius(prompt, workspaceContext), [prompt, workspaceContext])
+  const shipMemo = useMemo(
+    () => buildShipMemo(prompt, provider, model, releaseContract, blastRadius, result?.output),
+    [blastRadius, model, prompt, provider, releaseContract, result?.output]
+  )
+
   return (
-    <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+    <div className="space-y-8">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        {innovationFeatureCards.map((feature) => (
+          <div key={feature.title} className="rounded-3xl border border-white/10 bg-slate-950/70 p-5">
+            <p className="text-sm uppercase tracking-[0.25em] text-cyan-300">{feature.title}</p>
+            <p className="mt-3 text-sm leading-7 text-slate-300">{feature.detail}</p>
+          </div>
+        ))}
+      </section>
+
+      <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
       <section className="rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-2xl shadow-cyan-950/30">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -196,6 +330,31 @@ export function TalentWorkbench() {
           </button>
           <button
             type="button"
+            onClick={async () => {
+              setLoading(true)
+              setError('')
+
+              try {
+                await runPreflight()
+              } catch (requestError) {
+                setError(requestError instanceof Error ? requestError.message : 'Preflight request failed.')
+              } finally {
+                setLoading(false)
+              }
+            }}
+            className="rounded-full border border-emerald-400/40 px-5 py-3 text-sm text-emerald-100 transition hover:border-emerald-300 hover:text-white"
+          >
+            Run release preflight
+          </button>
+          <button
+            type="button"
+            onClick={runJury}
+            className="rounded-full border border-cyan-400/40 px-5 py-3 text-sm text-cyan-100 transition hover:border-cyan-300 hover:text-white"
+          >
+            Run model jury
+          </button>
+          <button
+            type="button"
             onClick={() => setPrompt('Inspect the workspace, identify release blockers, and produce a reviewer-ready checklist.')}
             className="rounded-full border border-white/15 px-5 py-3 text-sm text-white transition hover:border-white/40"
           >
@@ -232,6 +391,36 @@ export function TalentWorkbench() {
         </div>
 
         <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
+          <p className="text-sm uppercase tracking-[0.3em] text-emerald-300">Release Gate</p>
+          <div className="mt-4 space-y-4 text-sm text-slate-200">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Status</p>
+              <div className="mt-3 flex items-center gap-3">
+                <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-white">
+                  {preflight?.gate || 'awaiting preflight'}
+                </span>
+                <span className="text-2xl font-semibold text-white">{preflight?.readinessScore ?? '--'}</span>
+              </div>
+              <p className="mt-3">{preflight?.summary || 'Run release preflight to validate provider readiness, workspace coverage, and release risk before prompting a model.'}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Checks</p>
+              <div className="mt-3 space-y-3">
+                {(preflight?.checks || []).map((check) => (
+                  <div key={check.id} className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.25em] text-slate-400">
+                      {check.label} / {check.status}
+                    </p>
+                    <p className="mt-2">{check.detail}</p>
+                  </div>
+                ))}
+                {!preflight ? <p className="text-slate-300">No preflight checks yet.</p> : null}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
           <p className="text-sm uppercase tracking-[0.3em] text-fuchsia-300">Release Checklist</p>
           <div className="mt-4 space-y-3">
             {releaseChecklist.map((item) => (
@@ -239,6 +428,139 @@ export function TalentWorkbench() {
                 {item}
               </div>
             ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
+          <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">Release Contract</p>
+          <div className="mt-4 space-y-4 text-sm text-slate-200">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">{releaseContract.objective}</div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Deliverables</p>
+              <ul className="mt-3 space-y-2">
+                {releaseContract.deliverables.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Validations</p>
+              <ul className="mt-3 space-y-2">
+                {releaseContract.validations.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
+          <p className="text-sm uppercase tracking-[0.3em] text-amber-300">Blast Radius Simulator</p>
+          <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200">
+            <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Score</p>
+            <p className="mt-2 text-4xl font-semibold text-white">{blastRadius.score}</p>
+            <p className="mt-4 text-xs uppercase tracking-[0.25em] text-slate-400">Impacted Areas</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {blastRadius.impactedAreas.map((item) => (
+                <span key={item} className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-100">
+                  {item}
+                </span>
+              ))}
+            </div>
+            <p className="mt-4 text-xs uppercase tracking-[0.25em] text-slate-400">Watchouts</p>
+            <ul className="mt-3 space-y-2">
+              {blastRadius.watchouts.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+            <p className="mt-4 text-xs uppercase tracking-[0.25em] text-slate-400">Required Checks</p>
+            <ul className="mt-3 space-y-2">
+              {blastRadius.requiredChecks.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+            {blastRadius.releaseBlockers.length ? (
+              <>
+                <p className="mt-4 text-xs uppercase tracking-[0.25em] text-rose-300">Release Blockers</p>
+                <ul className="mt-3 space-y-2 text-rose-100">
+                  {blastRadius.releaseBlockers.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
+          <p className="text-sm uppercase tracking-[0.3em] text-fuchsia-300">Ops Ledger</p>
+          <div className="mt-4 space-y-3 text-sm text-slate-200">
+            {ledger.length ? (
+              ledger.map((entry, index) => (
+                <div key={`${entry.provider}-${entry.model}-${index}`} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.25em] text-slate-400">
+                    {entry.provider} / {entry.model} / {entry.status} / {entry.durationMs}ms
+                  </p>
+                  <p className="mt-2">{entry.note}</p>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                Run a prompt to start building the request ledger and fallback guidance.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
+          <p className="text-sm uppercase tracking-[0.3em] text-violet-300">Model Jury</p>
+          <div className="mt-4 space-y-3 text-sm text-slate-200">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              {jury?.synthesis || 'Run the jury to compare ballots across the active provider, Ollama, and LM Studio presets.'}
+            </div>
+            {preflight?.juryRecommendation?.length ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Recommended Jury</p>
+                <ul className="mt-3 space-y-2">
+                  {preflight.juryRecommendation.map((entry) => (
+                    <li key={`${entry.provider}-${entry.model}`}>
+                      {entry.provider} / {entry.model} - {entry.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {jury?.ballots.map((ballot) => (
+              <div key={`${ballot.provider}-${ballot.model}`} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">
+                  {ballot.provider} / {ballot.model} / {ballot.ok ? 'success' : 'error'} / {ballot.durationMs}ms
+                </p>
+                <p className="mt-2 whitespace-pre-wrap">{ballot.output || ballot.error}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
+          <p className="text-sm uppercase tracking-[0.3em] text-teal-300">Ship Memo Autowriter</p>
+          <pre className="mt-4 whitespace-pre-wrap rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-7 text-slate-100">
+            {shipMemo}
+          </pre>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
+          <p className="text-sm uppercase tracking-[0.3em] text-orange-300">Recovery Playbook</p>
+          <div className="mt-4 space-y-3 text-sm text-slate-200">
+            {(preflight?.opsPlaybook || []).map((item) => (
+              <div key={item} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                {item}
+              </div>
+            ))}
+            {!preflight ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                Run preflight to generate fallback steps for auth, missing models, and high-risk prompts.
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -254,6 +576,7 @@ export function TalentWorkbench() {
           </div>
         </div>
       </section>
+      </div>
     </div>
   )
 }

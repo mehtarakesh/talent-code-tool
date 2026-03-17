@@ -15,8 +15,11 @@ export type ReleaseContract = {
 
 export type BlastRadius = {
   score: number
+  riskLevel: 'low' | 'medium' | 'high' | 'critical'
   impactedAreas: string[]
   watchouts: string[]
+  requiredChecks: string[]
+  releaseBlockers: string[]
 }
 
 export const innovationFeatures: InnovationFeature[] = [
@@ -42,6 +45,13 @@ export const innovationFeatures: InnovationFeature[] = [
     implementation: 'Auto-generated contract cards built from prompt intent and workspace context.',
   },
   {
+    id: 'release-gate',
+    name: 'Release Gate Preflight',
+    painPoint: 'Most AI coding tools let risky runs start before teams know whether auth, context, or validation plans are actually ready.',
+    outcome: 'Score readiness before generation, block unsafe runs, and recommend the next best action for high-risk work.',
+    implementation: 'A preflight API and UI gate that evaluates provider readiness, workspace coverage, release risk, jury recommendations, and fallback playbooks.',
+  },
+  {
     id: 'ops-ledger',
     name: 'Ops Ledger',
     painPoint: 'When a provider fails, developers rarely get a structured next move.',
@@ -59,6 +69,22 @@ export const innovationFeatures: InnovationFeature[] = [
 
 function unique(items: string[]) {
   return Array.from(new Set(items.filter(Boolean)))
+}
+
+function pickRiskLevel(score: number): BlastRadius['riskLevel'] {
+  if (score >= 80) {
+    return 'critical'
+  }
+
+  if (score >= 60) {
+    return 'high'
+  }
+
+  if (score >= 40) {
+    return 'medium'
+  }
+
+  return 'low'
 }
 
 export function buildReleaseContract(prompt: string, workspaceContext: string): ReleaseContract {
@@ -111,14 +137,35 @@ export function buildBlastRadius(prompt: string, workspaceContext: string): Blas
     impactedAreas.includes('Desktop packaging and local runtime') ? 'Desktop packaging can fail on machine-specific signing or asset assumptions.' : '',
     impactedAreas.includes('VS Code extension commands and packaging') ? 'Extension commands need packaging verification, not just TypeScript compile success.' : '',
     impactedAreas.includes('CLI behavior and shell workflows') ? 'CLI changes need Windows and POSIX shell expectations checked separately.' : '',
+    haystack.includes('auth') || haystack.includes('api key') ? 'Credential handling must avoid leaking secrets into logs, screenshots, or repo docs.' : '',
+    haystack.includes('release') || haystack.includes('deploy') ? 'Release-facing changes need rollback language and proof before they are shared publicly.' : '',
   ])
 
-  const score = Math.min(95, 20 + impactedAreas.length * 12 + watchouts.length * 7)
+  const requiredChecks = unique([
+    impactedAreas.includes('Web app and public product pages') ? 'Run the web build and smoke-check the touched routes.' : '',
+    impactedAreas.includes('Provider routes and backend request handling') ? 'Exercise provider routes with at least one local and one hosted-compatible payload.' : '',
+    impactedAreas.includes('CLI behavior and shell workflows') ? 'Verify CLI argument parsing and one shell smoke test.' : '',
+    impactedAreas.includes('Desktop packaging and local runtime') ? 'Compile the desktop runtime and verify the package target on the destination OS.' : '',
+    impactedAreas.includes('VS Code extension commands and packaging') ? 'Build the extension and verify the command surface still registers correctly.' : '',
+    impactedAreas.includes('Docs, README, and public positioning') ? 'Refresh docs and README copy so public claims match the current implementation.' : '',
+  ])
+
+  const releaseBlockers = unique([
+    impactedAreas.length >= 4 ? 'This change touches multiple user-facing surfaces and needs an explicit release gate review.' : '',
+    watchouts.length >= 4 ? 'The current plan has too many high-risk watchouts to ship without a model jury or staged validation.' : '',
+    haystack.includes('enterprise') || haystack.includes('pricing') ? 'Enterprise or pricing changes need docs parity before release.' : '',
+  ])
+
+  const score = Math.min(98, 18 + impactedAreas.length * 12 + watchouts.length * 7 + releaseBlockers.length * 8)
+  const riskLevel = pickRiskLevel(score)
 
   return {
     score,
+    riskLevel,
     impactedAreas,
     watchouts,
+    requiredChecks,
+    releaseBlockers,
   }
 }
 
@@ -134,7 +181,7 @@ export function buildShipMemo(
     `CodeOrbit AI shipped a ${provider}/${model} session focused on: ${prompt.trim() || 'release hardening'}.`,
     `Primary deliverables: ${contract.deliverables.slice(0, 3).join('; ')}.`,
     `Validation plan: ${contract.validations.slice(0, 3).join('; ')}.`,
-    `Risk score: ${blastRadius.score}/100 with impacted areas in ${blastRadius.impactedAreas.join(', ') || 'the active workspace'}.`,
+    `Risk score: ${blastRadius.score}/100 (${blastRadius.riskLevel}) with impacted areas in ${blastRadius.impactedAreas.join(', ') || 'the active workspace'}.`,
     output ? `Latest model takeaway: ${output.slice(0, 220).replace(/\s+/g, ' ')}...` : 'Latest model takeaway will appear after the first run.',
   ].join('\n\n')
 }

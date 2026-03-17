@@ -1,4 +1,4 @@
-type ProviderId = 'ollama' | 'lmstudio' | 'openai' | 'anthropic' | 'openrouter' | 'openai-compatible'
+export type ProviderId = 'ollama' | 'lmstudio' | 'openai' | 'anthropic' | 'openrouter' | 'openai-compatible'
 
 export type TalentMessage = {
   role: 'system' | 'user' | 'assistant'
@@ -15,14 +15,14 @@ export type TalentRequest = {
   workspaceContext?: string
 }
 
-const defaultSystemPrompt = `You are Talent Code Tool, a release-ready software engineer.
+export const defaultSystemPrompt = `You are CodeOrbit AI, a release-ready software engineer.
 Always return:
 1. A concise plan.
 2. The implementation approach.
 3. Validation steps.
 4. Remaining risks.`
 
-function buildMessages(input: TalentRequest): TalentMessage[] {
+export function buildMessages(input: TalentRequest): TalentMessage[] {
   const workspace = input.workspaceContext?.trim()
     ? `Workspace context:\n${input.workspaceContext.trim()}`
     : 'Workspace context: not provided.'
@@ -36,7 +36,7 @@ function buildMessages(input: TalentRequest): TalentMessage[] {
   ]
 }
 
-function normalizeBaseUrl(provider: ProviderId, customBaseUrl?: string) {
+export function normalizeBaseUrl(provider: ProviderId, customBaseUrl?: string) {
   if (customBaseUrl?.trim()) {
     return customBaseUrl.trim().replace(/\/$/, '')
   }
@@ -58,7 +58,7 @@ function normalizeBaseUrl(provider: ProviderId, customBaseUrl?: string) {
   }
 }
 
-async function readJson(response: Response) {
+export async function readJson(response: Response) {
   const text = await response.text()
 
   try {
