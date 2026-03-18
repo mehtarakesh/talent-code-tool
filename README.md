@@ -16,7 +16,7 @@ It is designed to keep teams out of vendor lock-in while still supporting the fa
 - `Desktop app`: Electron shell for macOS, Windows, Linux
 - `CLI`: cross-platform `codeorbit` binary
 - `Providers`: Ollama, LM Studio, OpenAI, Anthropic, OpenRouter, OpenAI-compatible
-- `Release layer`: mission lock, proof gate, preflight gate, blast radius, release contract, model jury, hidden pain detector, auto-heal recovery, session capsule, ops ledger, ship memo
+- `Release layer`: mission lock, proof gate, preflight gate, blast radius, release contract, model jury, hidden pain detector, freshness sentinel, continuity vault, auto-heal recovery, session capsule, ops ledger, ship memo
 
 ## Install Matrix
 
@@ -292,6 +292,32 @@ How CodeOrbit AI handles it:
 Why this changes everything:
 - The workflow becomes continuous across surfaces instead of resetting every time the user changes tools.
 
+### Hidden pain point: community advice gets stale faster than AI tools admit
+
+What usually happens:
+- Users ask for the “best” SDK, package, or integration pattern.
+- The model answers confidently, but the recommendation is already stale because APIs, pricing, and platform behavior moved.
+
+How CodeOrbit AI handles it:
+- `Freshness Sentinel` detects fast-moving dependencies and raises a live-verification requirement.
+- It asks for canonical docs, pinned versions, and maintenance signals before trusting the generated guidance.
+
+Why this changes everything:
+- The tool stops turning stale internet memory into fresh technical debt.
+
+### Hidden pain point: checkpointing is fragile right when confidence is highest
+
+What usually happens:
+- A strong run is interrupted by a refresh, crash, or surface switch.
+- The user loses the exact state that made the run valuable.
+
+How CodeOrbit AI handles it:
+- `Continuity Vault` stores automatic local snapshots of the workbench state.
+- The user can restore a strong run without reconstructing the entire context from memory.
+
+Why this changes everything:
+- Good sessions survive interruption instead of disappearing at the worst possible moment.
+
 ### Hidden pain point: provider failure recovery is treated like the user's job
 
 What usually happens:
@@ -339,8 +365,14 @@ Find contradictions, missing assumptions, invisible coordination costs, and unsp
 10. `Session Capsule`
 Carry the same run across web, desktop, CLI, and editor surfaces without rebuilding context by hand.
 
-11. `Auto-Heal Recovery Lanes`
+11. `Continuity Vault`
+Keep automatic local snapshots so strong runs survive refreshes, tool switches, and checkpoint failures.
+
+12. `Auto-Heal Recovery Lanes`
 Keep fallback provider paths ready so the system can recover from missing-model, auth, network, or compatibility failures.
+
+13. `Freshness Sentinel`
+Detect stale dependency and API advice before fast-moving external systems turn model output into maintenance debt.
 
 ## Comparison
 
@@ -360,7 +392,9 @@ The Claude Code benchmark is based on Anthropic's public Claude Code documentati
 | Preflight release gate before model execution | No | No | Yes |
 | Hidden contradiction and missing-context detection | No | No | Yes |
 | Portable session continuity across surfaces | Partial | No | Yes |
+| Automatic continuity snapshots and restore | No | No | Yes |
 | Auto-heal provider recovery lanes | Partial | Partial | Yes |
+| Freshness guard for stale SDK and API advice | No | No | Yes |
 | Enterprise positioning without single-vendor lock-in | Partial | Partial | Yes |
 
 ## Repo Stats
@@ -524,7 +558,7 @@ Successful checks:
 - `npm run build:desktop`
 - `npm run build:cli`
 - Web smoke checks for `/api/talent/providers`, `/api/talent/preflight`, and the auto-heal chat route
-- 15 passing unit tests for provider helpers, release heuristics, hidden pain analysis, mission locking, proof gating, session capsules, and recovery planning
+- 19 passing unit tests for provider helpers, release heuristics, hidden pain analysis, mission locking, proof gating, freshness checks, continuity vault snapshots, session capsules, and recovery planning
 
 This publish repo contains the source-ready product surfaces and the root workspace manifest needed to build them together.
 

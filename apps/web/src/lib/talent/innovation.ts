@@ -80,11 +80,25 @@ export const innovationFeatures: InnovationFeature[] = [
     implementation: 'Base64-encoded portable session payloads that preserve provider, prompt, workspace context, gate status, and latest output.',
   },
   {
+    id: 'continuity-vault',
+    name: 'Continuity Vault',
+    painPoint: 'People lose good runs to refreshes, crashes, tool switches, and broken checkpoint flows.',
+    outcome: 'Keep automatic local snapshots of the workbench so strong runs can be restored without manual reconstruction.',
+    implementation: 'A local snapshot vault that captures prompt, provider lane, gate state, and output preview for fast restore.',
+  },
+  {
     id: 'auto-heal',
     name: 'Auto-Heal Recovery Lanes',
     painPoint: 'Provider failures usually force the human to become the recovery orchestrator.',
     outcome: 'Prepare fallback execution lanes and recover from auth, network, missing-model, or compatibility failures with less manual intervention.',
     implementation: 'Recovery-lane planning in preflight plus sequential fallback attempts in the chat route when recoverable errors appear.',
+  },
+  {
+    id: 'freshness-sentinel',
+    name: 'Freshness Sentinel',
+    painPoint: 'AI coding tools confidently recommend stale SDKs, outdated docs, and drifting API patterns when a request touches fast-moving dependencies.',
+    outcome: 'Detect high-drift requests early and demand live proof or pinned versions before accepting generated recommendations.',
+    implementation: 'A freshness analysis layer that scores stale-doc risk and asks for canonical docs, pinned versions, and maintenance signals.',
   },
   {
     id: 'ops-ledger',

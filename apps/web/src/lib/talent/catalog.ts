@@ -96,6 +96,10 @@ export const featureColumns = [
     title: 'Session Capsule + Auto-Heal',
     detail: 'Resume the same run across surfaces and recover from provider failures without manually rebuilding context.',
   },
+  {
+    title: 'Freshness Sentinel + Continuity Vault',
+    detail: 'Catch stale dependency advice and keep automatic snapshots so progress survives crashes or tool switches.',
+  },
 ]
 
 export const innovationFeatureCards: InnovationFeatureCard[] = [
@@ -132,8 +136,16 @@ export const innovationFeatureCards: InnovationFeatureCard[] = [
     detail: 'Exports the live run state into a portable capsule so the same context can resume across web, desktop, CLI, and editor surfaces.',
   },
   {
+    title: 'Continuity Vault',
+    detail: 'Stores automatic local snapshots so strong runs can be restored without relying on fragile checkpoint behavior.',
+  },
+  {
     title: 'Auto-Heal Recovery Lanes',
     detail: 'Prepares fallback provider lanes and can recover the run when auth, network, or missing-model failures happen.',
+  },
+  {
+    title: 'Freshness Sentinel',
+    detail: 'Identifies when a request touches fast-moving SDKs, APIs, or deployment platforms and asks for live proof before trusting recommendations.',
   },
   {
     title: 'Ops Ledger',
@@ -225,9 +237,21 @@ export const comparisonRows = [
     talent: 'Yes',
   },
   {
+    feature: 'Automatic continuity snapshots and restore',
+    claudeCode: 'No',
+    openConsole: 'No',
+    talent: 'Yes',
+  },
+  {
     feature: 'Auto-heal provider recovery lanes',
     claudeCode: 'Partial',
     openConsole: 'Partial',
+    talent: 'Yes',
+  },
+  {
+    feature: 'Freshness guard for stale SDK and API advice',
+    claudeCode: 'No',
+    openConsole: 'No',
     talent: 'Yes',
   },
 ]
@@ -346,6 +370,16 @@ export const docsSections = [
     id: 'continuity',
     title: 'Session Capsule and Auto-Heal',
     body: 'CodeOrbit can package the exact run state into a portable capsule and build recovery lanes so the workflow survives surface switches, missing models, auth issues, and compatibility failures with less manual orchestration.',
+  },
+  {
+    id: 'freshness',
+    title: 'Freshness Sentinel',
+    body: 'Freshness Sentinel detects when a request depends on fast-moving SDKs, APIs, or deployment platforms and raises a live-verification requirement before stale guidance becomes code.',
+  },
+  {
+    id: 'vault',
+    title: 'Continuity Vault',
+    body: 'Continuity Vault keeps automatic local snapshots of the workbench so users can restore a strong run after refreshes, tool changes, or broken checkpoint moments.',
   },
   {
     id: 'providers',

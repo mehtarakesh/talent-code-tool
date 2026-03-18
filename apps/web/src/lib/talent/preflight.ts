@@ -1,4 +1,5 @@
 import { buildHiddenPainAnalysis, buildRecoveryLanes, type HiddenPainAnalysis, type RecoveryLane } from '@/lib/talent/advanced'
+import { buildFreshnessAssessment, type FreshnessAssessment } from '@/lib/talent/freshness'
 import { buildBlastRadius, buildOpsSuggestion, buildReleaseContract, type BlastRadius, type ReleaseContract } from '@/lib/talent/innovation'
 import { buildMissionLock, type MissionLock } from '@/lib/talent/mission-lock'
 import { normalizeBaseUrl, type ProviderId } from '@/lib/talent/provider-client'
@@ -24,6 +25,7 @@ export type PreflightAssessment = {
   releaseContract: ReleaseContract
   blastRadius: BlastRadius
   missionLock: MissionLock
+  freshness: FreshnessAssessment
   checks: PreflightCheck[]
   juryRecommendation: JuryRecommendation[]
   hiddenPainAnalysis: HiddenPainAnalysis
@@ -186,6 +188,7 @@ export function buildPreflightAssessment(input: PreflightInput): PreflightAssess
   const releaseContract = buildReleaseContract(input.prompt, input.workspaceContext || '')
   const blastRadius = buildBlastRadius(input.prompt, input.workspaceContext || '')
   const missionLock = buildMissionLock(input.prompt, input.workspaceContext || '', releaseContract, blastRadius)
+  const freshness = buildFreshnessAssessment(input.prompt, input.workspaceContext || '')
   const checks = buildChecks(input, blastRadius, normalizedBaseUrl)
   const gate = classifyCheckStatus(checks)
   const warningPenalty = checks.filter((check) => check.status === 'warning').length * 8
@@ -230,6 +233,7 @@ export function buildPreflightAssessment(input: PreflightInput): PreflightAssess
     releaseContract,
     blastRadius,
     missionLock,
+    freshness,
     checks,
     juryRecommendation,
     hiddenPainAnalysis,

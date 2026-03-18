@@ -43,5 +43,6 @@ describe('buildPreflightAssessment', () => {
 
     expect(assessment.gate).toBe('go')
     expect(assessment.readinessScore).toBeGreaterThan(60)
+    expect(assessment.freshness.status).toBe('stable')
   })
 })

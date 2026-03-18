@@ -7,6 +7,7 @@ import { innovationFeatureCards, providerCatalog, releaseChecklist } from '@/lib
 import { buildBlastRadius, buildOpsSuggestion, buildReleaseContract, buildShipMemo } from '@/lib/talent/innovation'
 import { buildMissionLock, evaluateProofGate } from '@/lib/talent/mission-lock'
 import type { PreflightAssessment } from '@/lib/talent/preflight'
+import { createSnapshot, deserializeSnapshots, mergeSnapshots, serializeSnapshots, type WorkbenchSnapshot } from '@/lib/talent/vault'
 
 type ProviderRecord = {
   id: string
@@ -43,6 +44,7 @@ type LedgerEntry = {
 }
 
 const starterPrompt = 'Review the selected workspace, suggest the implementation plan, produce the patch strategy, and define the release validation steps.'
+const vaultStorageKey = 'codeorbit-ai.vault.snapshots'
 
 export function TalentWorkbench() {
   const [providers, setProviders] = useState<ProviderRecord[]>(providerCatalog)
@@ -56,6 +58,7 @@ export function TalentWorkbench() {
   const [jury, setJury] = useState<{ ballots: JuryBallot[]; synthesis: string } | null>(null)
   const [preflight, setPreflight] = useState<PreflightAssessment | null>(null)
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
+  const [vaultSnapshots, setVaultSnapshots] = useState<WorkbenchSnapshot[]>([])
   const [capsuleInput, setCapsuleInput] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -83,6 +86,14 @@ export function TalentWorkbench() {
     }
   }, [])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    setVaultSnapshots(deserializeSnapshots(window.localStorage.getItem(vaultStorageKey)))
+  }, [])
+
   const activeProvider = useMemo(
     () => providers.find((entry) => entry.id === provider) || providerCatalog[0],
     [provider, providers]
@@ -96,6 +107,29 @@ export function TalentWorkbench() {
     setBaseUrl(activeProvider.baseUrl)
     setModel(activeProvider.models[0] || '')
   }, [activeProvider])
+
+  function storeSnapshot(assessment?: PreflightAssessment | null, output?: ApiResult | null) {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const snapshot = createSnapshot({
+      provider,
+      model,
+      baseUrl,
+      prompt,
+      workspaceContext,
+      gate: assessment?.gate,
+      readinessScore: assessment?.readinessScore,
+      outputPreview: output?.output?.slice(0, 220),
+    })
+
+    setVaultSnapshots((current) => {
+      const next = mergeSnapshots(current, snapshot)
+      window.localStorage.setItem(vaultStorageKey, serializeSnapshots(next))
+      return next
+    })
+  }
 
   async function runPreflight() {
     const response = await fetch('/api/talent/preflight', {
@@ -120,6 +154,7 @@ export function TalentWorkbench() {
     }
 
     setPreflight(data)
+    storeSnapshot(data, result)
     return data as PreflightAssessment
   }
 
@@ -157,6 +192,7 @@ export function TalentWorkbench() {
       }
 
       setResult(data)
+      storeSnapshot(assessment, data)
       setLedger((current) => {
         const nextEntry: LedgerEntry = {
           provider: data.provider,
@@ -262,6 +298,15 @@ export function TalentWorkbench() {
     setBaseUrl(capsule.baseUrl)
     setPrompt(capsule.prompt)
     setWorkspaceContext(capsule.workspaceContext)
+    setError('')
+  }
+
+  function restoreVaultSnapshot(snapshot: WorkbenchSnapshot) {
+    setProvider(snapshot.provider)
+    setModel(snapshot.model)
+    setBaseUrl(snapshot.baseUrl || baseUrl)
+    setPrompt(snapshot.prompt)
+    setWorkspaceContext(snapshot.workspaceContext)
     setError('')
   }
 
@@ -501,6 +546,59 @@ export function TalentWorkbench() {
                 </ul>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
+          <p className="text-sm uppercase tracking-[0.3em] text-orange-300">Freshness Sentinel</p>
+          <div className="mt-4 space-y-4 text-sm text-slate-200">
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Freshness Risk</p>
+              <div className="mt-3 flex items-center gap-3">
+                <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-white">
+                  {preflight?.freshness.status || 'stable'}
+                </span>
+                <span className="text-3xl font-semibold text-white">{preflight?.freshness.freshnessScore ?? '--'}</span>
+              </div>
+              <p className="mt-3">
+                {preflight
+                  ? 'This checks whether the task depends on fast-moving external APIs, packages, or platforms that should be verified live.'
+                  : 'Run preflight to catch stale-doc risk before the model recommends outdated APIs or libraries.'}
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Live Proof Requests</p>
+                <ul className="mt-3 space-y-2">
+                  {(preflight?.freshness.liveProofRequests || []).map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Suggested Artifacts</p>
+                <ul className="mt-3 space-y-2">
+                  {(preflight?.freshness.suggestedArtifacts || []).map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            {(preflight?.freshness.signals || []).length ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Freshness Signals</p>
+                <div className="mt-3 space-y-3">
+                  {(preflight?.freshness.signals || []).map((signal) => (
+                    <div key={`${signal.subject}-${signal.detail}`} className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
+                      <p className="text-xs uppercase tracking-[0.25em] text-slate-400">
+                        {signal.subject} / {signal.type} / {signal.risk}
+                      </p>
+                      <p className="mt-2">{signal.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -751,6 +849,37 @@ export function TalentWorkbench() {
           >
             Load session capsule
           </button>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
+          <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">Continuity Vault</p>
+          <p className="mt-3 text-sm text-slate-300">
+            Automatic local snapshots of the workbench state so a good run survives refreshes, interruptions, and surface changes.
+          </p>
+          <div className="mt-4 space-y-3">
+            {vaultSnapshots.length ? (
+              vaultSnapshots.map((snapshot) => (
+                <div key={snapshot.id} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200">
+                  <p className="text-xs uppercase tracking-[0.25em] text-slate-400">
+                    {snapshot.createdAt} / {snapshot.readinessScore ?? '--'} / {snapshot.gate || 'draft'}
+                  </p>
+                  <p className="mt-2 font-medium text-white">{snapshot.label}</p>
+                  <p className="mt-2 text-slate-300">{snapshot.outputPreview || 'No output saved yet. Snapshot captured from preflight or draft state.'}</p>
+                  <button
+                    type="button"
+                    onClick={() => restoreVaultSnapshot(snapshot)}
+                    className="mt-3 rounded-full border border-cyan-400/40 px-4 py-2 text-xs text-cyan-100 transition hover:border-cyan-300 hover:text-white"
+                  >
+                    Restore snapshot
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200">
+                Run preflight or execute a prompt to start the continuity vault.
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
