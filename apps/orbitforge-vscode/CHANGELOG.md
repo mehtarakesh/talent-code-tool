@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+
+- added mission sessions with tabs inside the panel so multiple runs stay open
+- added exportable mission history to markdown or JSON
+- upgraded streaming playback to run per-session with timeline updates
+
 ## 0.5.0
 
 - added a mission timeline inside the panel to show context, lanes, runtime, and completion stages

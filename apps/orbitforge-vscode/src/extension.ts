@@ -87,6 +87,8 @@ type TimelineStage = {
 const missionHistoryStateKey = 'orbitforge.missionHistory'
 const pinnedPresetsStateKey = 'orbitforge.pinnedPresets'
 const missionHistoryLimit = 12
+const streamChunkDelayMs = 14
+const streamChunkSize = 220
 
 const timelineStages: TimelineStage[] = [
   { id: 'context', label: 'Context packed' },
@@ -340,6 +342,77 @@ function formatHistoryText(entries: MissionHistoryEntry[]) {
   ].join('\n')
 }
 
+function buildHistoryMarkdown(entries: MissionHistoryEntry[]) {
+  if (!entries.length) {
+    return '# OrbitForge Mission History\n\nNo missions saved yet.'
+  }
+
+  const blocks = entries.map((entry, index) => {
+    const header = `## ${index + 1}. ${entry.title}`
+    const meta = [
+      `- Workflow: ${workflowLabels[entry.workflow]}`,
+      `- Mode: ${entry.mode}`,
+      `- Context: ${entry.contextScope}`,
+      `- Provider: ${entry.provider}`,
+      `- Model: ${entry.model}`,
+      `- Source: ${entry.source}`,
+      `- Created: ${entry.createdAt}`,
+      `- Summary: ${entry.summary}`,
+    ].join('\n')
+    const prompt = `### Prompt\n\n${entry.prompt}`
+    return [header, meta, prompt].join('\n\n')
+  })
+
+  return ['# OrbitForge Mission History', '', ...blocks].join('\n\n')
+}
+
+function buildHistoryJson(entries: MissionHistoryEntry[]) {
+  return JSON.stringify({ exportedAt: new Date().toISOString(), missions: entries }, null, 2)
+}
+
+async function exportMissionHistory(extensionContext: vscode.ExtensionContext, preferredFormat?: 'md' | 'json') {
+  const history = getMissionHistory(extensionContext)
+  let format: 'md' | 'json' | undefined = preferredFormat
+
+  if (!format) {
+    const formatPick = await vscode.window.showQuickPick(
+      [
+        { label: 'Markdown', description: 'Share a readable mission log', format: 'md' as const },
+        { label: 'JSON', description: 'Export raw data for other tooling', format: 'json' as const },
+      ],
+      {
+        title: 'Export OrbitForge mission history',
+        placeHolder: 'Choose export format',
+      }
+    )
+
+    if (!formatPick) {
+      return
+    }
+
+    format = formatPick.format
+  }
+
+  const defaultName =
+    format === 'md' ? 'orbitforge-mission-history.md' : 'orbitforge-mission-history.json'
+  const defaultUri = vscode.workspace.workspaceFolders?.[0]?.uri
+    ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName)
+    : undefined
+
+  const saveUri = await vscode.window.showSaveDialog({
+    defaultUri,
+    saveLabel: 'Export History',
+  })
+
+  if (!saveUri) {
+    return
+  }
+
+  const output = format === 'md' ? buildHistoryMarkdown(history) : buildHistoryJson(history)
+  await vscode.workspace.fs.writeFile(saveUri, Buffer.from(output, 'utf8'))
+  vscode.window.showInformationMessage(`OrbitForge history exported to ${saveUri.fsPath}`)
+}
+
 function renderContextCards(snapshot: PanelContextSnapshot) {
   const cards = [
     `Provider: ${snapshot.provider}`,
@@ -395,6 +468,8 @@ function renderSlashHints() {
     '/rerun last',
     '/pin workspace-plan',
     '/pins',
+    '/export md',
+    '/export json',
   ]
 
   return commands
@@ -565,6 +640,19 @@ async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMi
     summary,
     history,
     historyEntry,
+  }
+}
+
+async function streamOutputToPanel(panel: vscode.WebviewPanel, sessionId: string, text: string) {
+  for (let index = 0; index < text.length; index += streamChunkSize) {
+    const chunk = text.slice(index, index + streamChunkSize)
+    panel.webview.postMessage({
+      type: 'stream',
+      sessionId,
+      text: chunk,
+      reset: index === 0,
+    })
+    await new Promise((resolve) => setTimeout(resolve, streamChunkDelayMs))
   }
 }
 
@@ -984,6 +1072,25 @@ function renderPanel(
         grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
         margin-top: 10px;
       }
+      .session-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .session-tab {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        background: rgba(15, 23, 42, 0.7);
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .session-tab.active {
+        color: var(--text);
+        border-color: rgba(105, 245, 225, 0.4);
+        background: rgba(14, 26, 45, 0.9);
+      }
       label { display: block; margin-bottom: 12px; }
       .label {
         display: flex;
@@ -1102,6 +1209,12 @@ function renderPanel(
         <div id="timeline-row" class="timeline-row">${renderTimeline(timelineStage)}</div>
       </section>
 
+      <section class="glass">
+        <div class="section-title">Mission sessions</div>
+        <div id="session-tabs" class="session-tabs"></div>
+        <div id="session-meta" class="hint">Start a mission to create a session tab.</div>
+      </section>
+
       <div class="grid">
         <section class="glass">
           <div class="section-title">Pinned presets</div>
@@ -1161,6 +1274,9 @@ function renderPanel(
 
         <section class="glass">
           <div class="section-title">Mission history</div>
+          <div class="button-row" style="margin-bottom: 10px;">
+            <button class="secondary" id="exportHistory">Export History</button>
+          </div>
           <div id="history-stack" class="history-stack">${renderHistoryCards(historyEntries)}</div>
         </section>
       </div>
@@ -1186,8 +1302,12 @@ function renderPanel(
       const contextGrid = document.getElementById('context-grid');
       const historyStack = document.getElementById('history-stack');
       const pinnedGrid = document.getElementById('pinned-grid');
+      const sessionTabs = document.getElementById('session-tabs');
+      const sessionMeta = document.getElementById('session-meta');
       const logList = document.getElementById('log-list');
       const timelineRow = document.getElementById('timeline-row');
+      const sessions = [];
+      let activeSessionId = null;
 
       const setStatus = (value) => {
         status.textContent = value || '';
@@ -1204,19 +1324,70 @@ function renderPanel(
         logList.prepend(li);
       };
 
-      const streamOutput = (text, reset) => {
-        if (reset) {
-          output.textContent = '';
+      const getSession = (id) => sessions.find((session) => session.id === id);
+
+      const renderSessions = () => {
+        if (!sessions.length) {
+          sessionTabs.innerHTML = '';
+          sessionMeta.textContent = 'Start a mission to create a session tab.';
+          return;
         }
-        const chars = text.split('');
-        let index = 0;
-        const interval = setInterval(() => {
-          output.textContent += chars[index];
-          index += 1;
-          if (index >= chars.length) {
-            clearInterval(interval);
-          }
-        }, 8);
+        sessionTabs.innerHTML = sessions
+          .map((session) => {
+            const active = session.id === activeSessionId ? 'active' : '';
+            return '<button class="session-tab ' + active + '" data-session-id="' + session.id + '">' + session.title + '</button>';
+          })
+          .join('');
+        const activeSession = getSession(activeSessionId) || sessions[0];
+        if (activeSession) {
+          activeSessionId = activeSession.id;
+          sessionMeta.textContent = activeSession.source + ' • ' + (activeSession.status || 'running');
+          output.textContent = activeSession.output || '';
+        }
+      };
+
+      const upsertSession = ({ id, title, source }) => {
+        const existing = getSession(id);
+        if (existing) {
+          existing.title = title || existing.title;
+          existing.source = source || existing.source;
+        } else {
+          sessions.unshift({ id, title, source, output: '', status: 'running' });
+        }
+        activeSessionId = id;
+        renderSessions();
+      };
+
+      const updateSessionOutput = (id, chunk, reset) => {
+        const session = getSession(id);
+        if (!session) {
+          return;
+        }
+        if (reset) {
+          session.output = '';
+        }
+        session.output += chunk;
+        if (session.id === activeSessionId) {
+          output.textContent = session.output;
+        }
+      };
+
+      const finalizeSession = ({ id, status, outputText, summary }) => {
+        const session = getSession(id);
+        if (!session) {
+          return;
+        }
+        session.status = status || session.status;
+        if (outputText && !session.output) {
+          session.output = outputText;
+        }
+        if (summary) {
+          session.summary = summary;
+        }
+        if (session.id === activeSessionId) {
+          output.textContent = session.output;
+          sessionMeta.textContent = session.source + ' • ' + session.status;
+        }
       };
 
       document.querySelectorAll('[data-preset-id]').forEach((button) => {
@@ -1252,12 +1423,15 @@ function renderPanel(
         clearLogs();
         setStatus('Running OrbitForge mission...');
         output.textContent = 'Running OrbitForge...';
+        const sessionId = 'session-' + Date.now();
+        upsertSession({ id: sessionId, title: 'Mission', source: 'panel-mission' });
         vscode.postMessage({
           type: 'runPrompt',
           prompt: prompt.value,
           mode: mode.value,
           workflow: workflow.value,
-          contextScope: scope.value
+          contextScope: scope.value,
+          sessionId
         });
       });
 
@@ -1287,6 +1461,23 @@ function renderPanel(
         });
       });
 
+      sessionTabs.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        const button = target.closest('[data-session-id]');
+        if (!button) {
+          return;
+        }
+        activeSessionId = button.dataset.sessionId;
+        renderSessions();
+      });
+
+      document.getElementById('exportHistory').addEventListener('click', () => {
+        vscode.postMessage({ type: 'exportHistory' });
+      });
+
       pinnedGrid.addEventListener('click', (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) {
@@ -1305,8 +1496,16 @@ function renderPanel(
 
       window.addEventListener('message', (event) => {
         const message = event.data;
+        if (message.type === 'sessionStart') {
+          upsertSession({ id: message.sessionId, title: message.title || 'Mission', source: message.source || 'panel' });
+        }
         if (message.type === 'result') {
-          output.textContent = message.output;
+          finalizeSession({
+            id: message.sessionId || activeSessionId,
+            status: message.status || 'complete',
+            outputText: message.output,
+            summary: message.summary
+          });
           setStatus(message.status || 'Run complete.');
         }
         if (message.type === 'context') {
@@ -1335,7 +1534,7 @@ function renderPanel(
           addLog(message.entry);
         }
         if (message.type === 'stream') {
-          streamOutput(message.text || '', Boolean(message.reset));
+          updateSessionOutput(message.sessionId || activeSessionId, message.text || '', Boolean(message.reset));
         }
       });
     </script>
@@ -1383,8 +1582,16 @@ export function activate(context: vscode.ExtensionContext) {
       contextScope: ContextScope
       blueprint?: OrbitForgeLifecycleBlueprint
       source: string
+      sessionId?: string
     }
   ) => {
+    const sessionId = mission.sessionId ?? `session-${Date.now()}`
+    panel.webview.postMessage({
+      type: 'sessionStart',
+      sessionId,
+      title: mission.title,
+      source: mission.source,
+    })
     panel.webview.postMessage({ type: 'clearLog' })
     pushTimeline(panel, 'context')
 
@@ -1403,13 +1610,12 @@ export function activate(context: vscode.ExtensionContext) {
         },
       })
 
-      panel.webview.postMessage({
-        type: 'stream',
-        reset: true,
-        text: result.output,
-      })
+      await streamOutputToPanel(panel, sessionId, result.output)
       panel.webview.postMessage({
         type: 'result',
+        sessionId,
+        title: mission.title,
+        summary: result.summary,
         status: `Mission complete using ${result.contextLabel.toLowerCase()} context.`,
         output: result.output,
       })
@@ -1453,6 +1659,8 @@ export function activate(context: vscode.ExtensionContext) {
           '/pin <preset-id>',
           '/unpin <preset-id>',
           '/pins',
+          '/export md',
+          '/export json',
         ].join('\n'),
       })
       return true
@@ -1481,6 +1689,17 @@ export function activate(context: vscode.ExtensionContext) {
         type: 'result',
         status: 'Pinned presets refreshed.',
         output: pins.length ? `Pinned presets: ${pins.join(', ')}` : 'No pinned presets yet.',
+      })
+      return true
+    }
+
+    if (command === '/export') {
+      const format = value === 'json' ? 'json' : 'md'
+      await exportMissionHistory(context, format)
+      panel.webview.postMessage({
+        type: 'result',
+        status: 'History export complete.',
+        output: `Mission history exported as ${format.toUpperCase()}.`,
       })
       return true
     }
@@ -1679,6 +1898,11 @@ export function activate(context: vscode.ExtensionContext) {
           return
         }
 
+        if (message.type === 'exportHistory') {
+          await exportMissionHistory(context)
+          return
+        }
+
         if (message.type === 'historyAction') {
           const entry = getMissionHistory(context).find((item) => item.id === message.historyId)
 
@@ -1741,6 +1965,7 @@ export function activate(context: vscode.ExtensionContext) {
           workflow: normalizeWorkflow(message.workflow),
           contextScope: normalizeContextScope(message.contextScope),
           source: 'panel-mission',
+          sessionId: message.sessionId,
         })
       },
       undefined,
@@ -1758,6 +1983,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   const openMissionHistoryCommand = vscode.commands.registerCommand('orbitforge.openMissionHistory', async () => {
     await openMissionHistoryPicker(context)
+  })
+
+  const exportMissionHistoryCommand = vscode.commands.registerCommand('orbitforge.exportMissionHistory', async () => {
+    await exportMissionHistory(context)
   })
 
   const explainSelectionCommand = vscode.commands.registerCommand('orbitforge.explainSelection', async () => {
@@ -1861,6 +2090,7 @@ export function activate(context: vscode.ExtensionContext) {
     guidedSessionCommand,
     openPanelCommand,
     openMissionHistoryCommand,
+    exportMissionHistoryCommand,
     explainSelectionCommand,
     generateFromWorkspaceCommand,
     parallelWorkspacePlanCommand,

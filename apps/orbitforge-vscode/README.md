@@ -12,6 +12,8 @@ Instead of stopping at chat and code generation, OrbitForge helps you run work w
 - live run logs so you can see context packing, lane setup, and completion stages
 - streaming-style output playback inside the panel
 - pinned presets for instant repeatable missions
+- multi-mission session tabs inside the panel
+- exportable mission history to markdown or JSON
 - provider parity across local and hosted models
 - parallel architect / implementer / critic lanes
 - workflow-aware mission boards
@@ -35,8 +37,10 @@ OrbitForge is built for the harder problems:
   Opens a low-friction launcher that lets you choose a preset, custom mission, or starter blueprint in a few clicks.
 - `OrbitForge: Mission History`
   Opens saved workspace missions so you can rerun or continue strong prior runs.
+- `OrbitForge: Export Mission History`
+  Exports mission history to a markdown or JSON file.
 - `OrbitForge: Open Panel`
-  Opens the interactive OrbitForge panel with presets, pinned missions, slash commands, a mission timeline, streaming output, history, and blueprint launching.
+  Opens the interactive OrbitForge panel with presets, pinned missions, session tabs, slash commands, a mission timeline, streaming output, history, and blueprint launching.
 - `OrbitForge: Explain Selection`
   Reviews the current selection and suggests the safest next edit.
 - `OrbitForge: Plan From Workspace`
@@ -82,7 +86,7 @@ Once published, install `OrbitForge` from the VS Code Marketplace or Open VSX.
 ### From VSIX
 
 ```bash
-code --install-extension orbitforge-vscode-0.5.0.vsix
+code --install-extension orbitforge-vscode-0.6.0.vsix
 ```
 
 ## Configure
@@ -117,6 +121,8 @@ Inside the panel, you can type slash commands like:
 - `/rerun last`
 - `/pin workspace-plan`
 - `/pins`
+- `/export md`
+- `/export json`
 
 ## Development
 
