@@ -2,6 +2,8 @@
 
 OrbitForge is the public product repo for the cross-platform AI coding surfaces behind `orbitforge.dev`.
 
+![OrbitForge](./assets/branding/orbitforge-social.png)
+
 This repository focuses on the surfaces developers actually run on their machines:
 
 - VS Code extension
@@ -201,6 +203,11 @@ Public surfaces:
 - `apps/orbitforge-desktop`
 - `apps/orbitforge-cli`
 
+Marketplace and release docs:
+
+- `docs/vscode-marketplace-release.md`
+- `docs/market-edge.md`
+
 Private for now:
 
 - the hosted `orbitforge.dev` web app
@@ -236,6 +243,19 @@ npm run package:desktop:win
 npm run package:desktop:linux
 npm run package:cli
 ```
+
+## VS Code Release Path
+
+OrbitForge is now set up for:
+
+- packaged VSIX releases
+- GitHub Actions CI artifacts
+- VS Code Marketplace publishing
+- Open VSX publishing
+
+The release guide lives in:
+
+- `docs/vscode-marketplace-release.md`
 
 ## Contributing With Claude Code
 

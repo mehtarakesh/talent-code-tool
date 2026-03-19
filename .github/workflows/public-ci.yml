@@ -1,0 +1,53 @@
+name: Public CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test core
+        run: npm run test:core
+
+      - name: Build CLI
+        run: npm run build:cli
+
+      - name: Build desktop
+        run: npm run build:desktop
+
+      - name: Build extension
+        run: npm run build:extension
+
+      - name: Package extension
+        run: npm run package:extension
+
+      - name: Package CLI
+        run: npm run package:cli
+
+      - name: Upload extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orbitforge-vsix
+          path: apps/orbitforge-vscode/*.vsix
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orbitforge-cli
+          path: apps/orbitforge-cli/*.tgz

@@ -1,5 +1,12 @@
 import * as vscode from 'vscode'
-import { runOrbitForgeTask, type AgentMode, type AgentWorkflow, type ProviderId } from 'orbitforge-core'
+import {
+  builtInLifecycleBlueprints,
+  runOrbitForgeTask,
+  type AgentMode,
+  type AgentWorkflow,
+  type OrbitForgeLifecycleBlueprint,
+  type ProviderId,
+} from 'orbitforge-core'
 
 type TalentSettings = {
   provider: ProviderId
@@ -27,6 +34,7 @@ async function requestTalent(
   contextText: string,
   mode: AgentMode,
   workflow: AgentWorkflow,
+  blueprint?: OrbitForgeLifecycleBlueprint,
   settings = getSettings()
 ) {
   const result = await runOrbitForgeTask({
@@ -38,6 +46,7 @@ async function requestTalent(
     workspaceContext: contextText,
     mode,
     workflow,
+    blueprint,
   })
 
   return `${result.summary}\n\n${result.output}`
@@ -47,6 +56,56 @@ async function collectWorkspaceSummary() {
   const files = await vscode.workspace.findFiles('**/*.{ts,tsx,js,jsx,py,md,json}', '**/node_modules/**', 20)
   const lines = files.map((file) => vscode.workspace.asRelativePath(file)).join('\n')
   return lines || 'No workspace files found.'
+}
+
+function parseBlueprintWorkflow(blueprint: OrbitForgeLifecycleBlueprint): AgentWorkflow {
+  const workflow = blueprint.nodes.find((node) => node.componentId === 'parallel-lanes')?.config?.workflow
+
+  if (
+    workflow === 'review' ||
+    workflow === 'migration' ||
+    workflow === 'incident' ||
+    workflow === 'release' ||
+    workflow === 'general'
+  ) {
+    return workflow
+  }
+
+  return 'general'
+}
+
+function parseBlueprintMode(blueprint: OrbitForgeLifecycleBlueprint): AgentMode {
+  return blueprint.nodes.some((node) => node.componentId === 'parallel-lanes') ? 'parallel' : 'single'
+}
+
+async function runBlueprintCommand(
+  blueprint: OrbitForgeLifecycleBlueprint,
+  promptOverride?: string,
+  viewColumn = vscode.ViewColumn.Beside
+) {
+  const workspaceSummary = await collectWorkspaceSummary()
+  const prompt =
+    promptOverride ||
+    (await vscode.window.showInputBox({
+      prompt: 'Task prompt for this OrbitForge blueprint',
+      value: blueprint.goal,
+      ignoreFocusOut: true,
+    }))
+
+  if (!prompt?.trim()) {
+    return
+  }
+
+  const output = await requestTalent(
+    prompt,
+    workspaceSummary,
+    parseBlueprintMode(blueprint),
+    parseBlueprintWorkflow(blueprint),
+    blueprint
+  )
+
+  const doc = await vscode.workspace.openTextDocument({ content: output, language: 'markdown' })
+  await vscode.window.showTextDocument(doc, viewColumn)
 }
 
 function renderPanel(
@@ -211,11 +270,60 @@ export function activate(context: vscode.ExtensionContext) {
     }
   })
 
+  const runStarterBlueprintCommand = vscode.commands.registerCommand('orbitforge.runStarterBlueprint', async () => {
+    const selected = await vscode.window.showQuickPick(
+      builtInLifecycleBlueprints.map((blueprint) => ({
+        label: blueprint.title,
+        description: blueprint.blueprintId,
+        detail: blueprint.summary,
+        blueprint,
+      })),
+      {
+        title: 'Run an OrbitForge starter blueprint',
+        placeHolder: 'Choose a lifecycle blueprint to run in the current workspace',
+      }
+    )
+
+    if (!selected) {
+      return
+    }
+
+    try {
+      await runBlueprintCommand(selected.blueprint, undefined, vscode.ViewColumn.Beside)
+    } catch (error) {
+      vscode.window.showErrorMessage(error instanceof Error ? error.message : 'OrbitForge blueprint run failed.')
+    }
+  })
+
+  const runBlueprintFileCommand = vscode.commands.registerCommand('orbitforge.runBlueprintFile', async () => {
+    const file = await vscode.window.showOpenDialog({
+      canSelectMany: false,
+      filters: {
+        JSON: ['json'],
+      },
+      openLabel: 'Run OrbitForge Blueprint',
+    })
+
+    if (!file?.[0]) {
+      return
+    }
+
+    try {
+      const raw = await vscode.workspace.fs.readFile(file[0])
+      const blueprint = JSON.parse(Buffer.from(raw).toString('utf8')) as OrbitForgeLifecycleBlueprint
+      await runBlueprintCommand(blueprint, undefined, vscode.ViewColumn.Beside)
+    } catch (error) {
+      vscode.window.showErrorMessage(error instanceof Error ? error.message : 'Could not open the OrbitForge blueprint file.')
+    }
+  })
+
   context.subscriptions.push(
     openPanelCommand,
     explainSelectionCommand,
     generateFromWorkspaceCommand,
-    parallelWorkspacePlanCommand
+    parallelWorkspacePlanCommand,
+    runStarterBlueprintCommand,
+    runBlueprintFileCommand
   )
 }
 

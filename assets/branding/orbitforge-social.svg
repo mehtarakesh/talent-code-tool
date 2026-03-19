@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="140" y1="40" x2="1420" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#07111F"/>
+      <stop offset="0.5" stop-color="#10213A"/>
+      <stop offset="1" stop-color="#0A1324"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="944" y1="164" x2="1350" y2="604" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#80F6FF"/>
+      <stop offset="1" stop-color="#F3A24F"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="272" y1="574" x2="728" y2="756" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#FB923C" stop-opacity="0.12"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" rx="44" fill="url(#bg)"/>
+  <circle cx="1176" cy="352" r="238" stroke="url(#ring)" stroke-width="34"/>
+  <circle cx="1176" cy="352" r="144" fill="#0E1728" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="2"/>
+  <path d="M1030 352C1030 271.367 1095.37 206 1176 206H1240V256H1176C1122.98 256 1080 298.981 1080 352C1080 405.019 1122.98 448 1176 448H1240V498H1176C1095.37 498 1030 432.633 1030 352Z" fill="#F8FBFF"/>
+  <path d="M1268 206H1320L1372 352L1320 498H1268L1320 352L1268 206Z" fill="url(#ring)"/>
+  <rect x="168" y="154" width="524" height="592" rx="40" fill="url(#accent)" stroke="#FFFFFF" stroke-opacity="0.09"/>
+  <text x="224" y="274" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="78" font-weight="700">OrbitForge</text>
+  <text x="224" y="340" fill="#80F6FF" font-family="Arial, Helvetica, sans-serif" font-size="30" letter-spacing="8">LIFECYCLE-FIRST AI CODING</text>
+  <text x="224" y="434" fill="#D7E3F4" font-family="Arial, Helvetica, sans-serif" font-size="34">Solve the work around the agent, not just the prompt.</text>
+  <text x="224" y="510" fill="#B7C5DB" font-family="Arial, Helvetica, sans-serif" font-size="28">Mission intake. Context packing. Parallel dissent.</text>
+  <text x="224" y="556" fill="#B7C5DB" font-family="Arial, Helvetica, sans-serif" font-size="28">Approval gates. Validation proof. Release control.</text>
+  <rect x="224" y="620" width="196" height="58" rx="29" fill="#80F6FF"/>
+  <text x="264" y="658" fill="#082032" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700">orbitforge.dev</text>
+</svg>

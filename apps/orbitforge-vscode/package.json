@@ -1,22 +1,51 @@
 {
   "name": "orbitforge-vscode",
   "displayName": "OrbitForge",
-  "description": "OrbitForge coding workspace for Ollama, LM Studio, Anthropic, OpenAI, and compatible endpoints.",
-  "version": "0.1.0",
-  "publisher": "forgestudio",
-  "license": "UNLICENSED",
-  "private": true,
+  "description": "Lifecycle-first AI coding workspace for Ollama, LM Studio, Anthropic, OpenAI, and compatible endpoints.",
+  "version": "0.2.0",
+  "publisher": "mehtarakesh",
+  "license": "Apache-2.0",
+  "icon": "assets/icon.png",
+  "homepage": "https://orbitforge.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mehtarakesh/orbitforge-dev.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mehtarakesh/orbitforge-dev/issues"
+  },
+  "galleryBanner": {
+    "color": "#07111f",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "ai",
+    "coding",
+    "agents",
+    "ollama",
+    "lm studio",
+    "openai compatible",
+    "vscode",
+    "release workflow",
+    "parallel agents",
+    "local models",
+    "agentic",
+    "mcp"
   ],
   "activationEvents": [
     "onCommand:orbitforge.openPanel",
     "onCommand:orbitforge.explainSelection",
     "onCommand:orbitforge.generateFromWorkspace",
-    "onCommand:orbitforge.parallelWorkspacePlan"
+    "onCommand:orbitforge.parallelWorkspacePlan",
+    "onCommand:orbitforge.runStarterBlueprint",
+    "onCommand:orbitforge.runBlueprintFile"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -36,6 +65,14 @@
       {
         "command": "orbitforge.parallelWorkspacePlan",
         "title": "OrbitForge: Parallel Workspace Plan"
+      },
+      {
+        "command": "orbitforge.runStarterBlueprint",
+        "title": "OrbitForge: Run Starter Blueprint"
+      },
+      {
+        "command": "orbitforge.runBlueprintFile",
+        "title": "OrbitForge: Run Blueprint File"
       }
     ],
     "configuration": {
@@ -79,7 +116,8 @@
   },
   "scripts": {
     "build": "npm --prefix ../.. run build:core && tsc --noEmit -p . && esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.js --sourcemap",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies",
+    "package:pre-release": "vsce package --no-dependencies --pre-release"
   },
   "dependencies": {
     "orbitforge-core": "*"

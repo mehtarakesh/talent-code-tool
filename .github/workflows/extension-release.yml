@@ -1,0 +1,46 @@
+name: Extension Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "extension-v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build extension
+        run: npm run build:extension
+
+      - name: Package extension
+        run: npm run package:extension
+
+      - name: Publish to VS Code Marketplace
+        if: ${{ secrets.VSCE_PAT != '' }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          cd apps/orbitforge-vscode
+          npx vsce publish --no-dependencies -p "$VSCE_PAT"
+
+      - name: Publish to Open VSX
+        if: ${{ secrets.OVSX_PAT != '' }}
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          cd apps/orbitforge-vscode
+          npx ovsx publish orbitforge-vscode-*.vsix -p "$OVSX_PAT"
