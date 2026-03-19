@@ -125,6 +125,11 @@
           "default": "general",
           "enum": ["general", "review", "migration", "incident", "release"],
           "description": "Agentic workflow preset that changes the mission board, approval gates, and lane focus."
+        },
+        "orbitforge.stream": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable true provider streaming for single-lane runs when supported."
         }
       }
     }

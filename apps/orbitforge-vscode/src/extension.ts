@@ -15,6 +15,7 @@ type TalentSettings = {
   apiKey: string
   agentMode: AgentMode
   workflow: AgentWorkflow
+  stream: boolean
 }
 
 type ContextScope = 'workspace' | 'selection' | 'workspace+selection'
@@ -163,6 +164,7 @@ function getSettings(): TalentSettings {
     apiKey: config.get<string>('apiKey', ''),
     agentMode: config.get<AgentMode>('agentMode', 'single'),
     workflow: config.get<AgentWorkflow>('workflow', 'general'),
+    stream: config.get<boolean>('stream', true),
   }
 }
 
@@ -201,6 +203,26 @@ function truncate(value: string, max = 120) {
   }
 
   return `${normalized.slice(0, max - 1)}…`
+}
+
+function slugifyPrompt(prompt: string) {
+  const base = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 6)
+    .join('-')
+
+  return base || 'orbitforge-task'
+}
+
+function buildScaffold(prompt: string) {
+  const slug = slugifyPrompt(prompt)
+  return {
+    branch: `of/${slug}`,
+    commit: `feat: ${truncate(prompt, 72)}`,
+  }
 }
 
 function extractMissionSummary(output: string) {
@@ -413,6 +435,174 @@ async function exportMissionHistory(extensionContext: vscode.ExtensionContext, p
   vscode.window.showInformationMessage(`OrbitForge history exported to ${saveUri.fsPath}`)
 }
 
+function resolveProviderBaseUrl(provider: ProviderId, baseUrl: string) {
+  if (provider === 'ollama') {
+    return baseUrl.replace(/\/+$/, '')
+  }
+
+  if (baseUrl.endsWith('/v1')) {
+    return baseUrl
+  }
+
+  return `${baseUrl.replace(/\/+$/, '')}/v1`
+}
+
+function supportsStreaming(provider: ProviderId) {
+  return provider === 'ollama' || provider === 'openai' || provider === 'openai-compatible' || provider === 'openrouter' || provider === 'lmstudio'
+}
+
+async function invokeWithStreaming(invocation: {
+  provider: ProviderId
+  model: string
+  baseUrl: string
+  apiKey?: string
+  systemPrompt: string
+  userPrompt: string
+}, onToken: (token: string) => void) {
+  if (invocation.provider === 'ollama') {
+    return streamOllama(invocation, onToken)
+  }
+
+  if (supportsStreaming(invocation.provider)) {
+    return streamOpenAICompatible(invocation, onToken)
+  }
+
+  throw new Error('Streaming not supported for this provider.')
+}
+
+async function streamOpenAICompatible(
+  invocation: {
+    provider: ProviderId
+    model: string
+    baseUrl: string
+    apiKey?: string
+    systemPrompt: string
+    userPrompt: string
+  },
+  onToken: (token: string) => void
+) {
+  const url = `${resolveProviderBaseUrl(invocation.provider, invocation.baseUrl)}/chat/completions`
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  if (invocation.apiKey) {
+    headers.Authorization = `Bearer ${invocation.apiKey}`
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: invocation.model,
+      stream: true,
+      messages: [
+        { role: 'system', content: invocation.systemPrompt },
+        { role: 'user', content: invocation.userPrompt },
+      ],
+    }),
+  })
+
+  if (!response.body) {
+    throw new Error('Provider did not return a stream.')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let output = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) {
+      break
+    }
+    buffer += decoder.decode(value, { stream: true })
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() || ''
+    for (const part of parts) {
+      const line = part.trim()
+      if (!line.startsWith('data:')) {
+        continue
+      }
+      const payload = line.replace(/^data:\s*/, '')
+      if (payload === '[DONE]') {
+        break
+      }
+      try {
+        const json = JSON.parse(payload)
+        const delta = json.choices?.[0]?.delta?.content
+        if (delta) {
+          output += delta
+          onToken(delta)
+        }
+      } catch {
+        // Ignore malformed stream chunks.
+      }
+    }
+  }
+
+  return output
+}
+
+async function streamOllama(
+  invocation: {
+    provider: ProviderId
+    model: string
+    baseUrl: string
+    apiKey?: string
+    systemPrompt: string
+    userPrompt: string
+  },
+  onToken: (token: string) => void
+) {
+  const url = `${resolveProviderBaseUrl(invocation.provider, invocation.baseUrl)}/api/generate`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: invocation.model,
+      prompt: `${invocation.systemPrompt}\n\n${invocation.userPrompt}`,
+      stream: true,
+    }),
+  })
+
+  if (!response.body) {
+    throw new Error('Provider did not return a stream.')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let output = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) {
+      break
+    }
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue
+      }
+      try {
+        const json = JSON.parse(line)
+        const chunk = json.response
+        if (chunk) {
+          output += chunk
+          onToken(chunk)
+        }
+      } catch {
+        // Ignore malformed chunks.
+      }
+    }
+  }
+
+  return output
+}
+
 function renderContextCards(snapshot: PanelContextSnapshot) {
   const cards = [
     `Provider: ${snapshot.provider}`,
@@ -528,8 +718,38 @@ async function requestTalent(
   mode: AgentMode,
   workflow: AgentWorkflow,
   blueprint?: OrbitForgeLifecycleBlueprint,
-  settings = getSettings()
+  settings = getSettings(),
+  options?: { onToken?: (token: string) => void; forceStream?: boolean }
 ) {
+  const shouldStream =
+    Boolean(options?.forceStream) &&
+    settings.stream &&
+    mode === 'single' &&
+    supportsStreaming(settings.provider) &&
+    options?.onToken
+
+  if (shouldStream) {
+    const result = await runOrbitForgeTask(
+      {
+        provider: settings.provider,
+        model: settings.model,
+        baseUrl: settings.baseUrl,
+        apiKey: settings.apiKey,
+        prompt,
+        workspaceContext: contextText,
+        mode,
+        workflow,
+        blueprint,
+      },
+      {
+        invoker: async (invocation) => {
+          return invokeWithStreaming(invocation, options.onToken as (token: string) => void)
+        },
+      }
+    )
+    return `${result.summary}\n\n${result.output}`
+  }
+
   const result = await runOrbitForgeTask({
     provider: settings.provider,
     model: settings.model,
@@ -609,7 +829,15 @@ async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMi
     options.mode,
     options.workflow,
     options.blueprint,
-    settings
+    settings,
+    options.onLog && options.onStage && options.mode === 'single'
+      ? {
+          forceStream: true,
+          onToken: (token) => {
+            options.onLog?.(token)
+          },
+        }
+      : undefined
   )
 
   options.onStage?.('synthesis')
@@ -1604,13 +1832,29 @@ export function activate(context: vscode.ExtensionContext) {
             type: 'log',
             entry: line,
           })
+          if (mission.mode === 'single' && getSettings().stream && supportsStreaming(getSettings().provider)) {
+            panel.webview.postMessage({
+              type: 'stream',
+              sessionId,
+              text: line,
+              reset: false,
+            })
+          }
         },
         onStage: (stage) => {
           pushTimeline(panel, stage)
         },
       })
 
-      await streamOutputToPanel(panel, sessionId, result.output)
+      if (getSettings().stream && mission.mode === 'single' && supportsStreaming(getSettings().provider)) {
+        // streaming already handled via onToken in requestTalent
+        panel.webview.postMessage({
+          type: 'log',
+          entry: 'Streaming enabled: output delivered live.',
+        })
+      } else {
+        await streamOutputToPanel(panel, sessionId, result.output)
+      }
       panel.webview.postMessage({
         type: 'result',
         sessionId,
