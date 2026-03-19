@@ -16,6 +16,7 @@ Instead of stopping at chat and code generation, OrbitForge helps you run work w
 - exportable mission history to markdown or JSON
 - built-in diff proposals and git branch scaffolding from the mission prompt
 - true provider streaming for single and parallel lanes when supported
+- Ollama model auto-detection with fallback to an installed local model
 - provider parity across local and hosted models
 - parallel architect / implementer / critic lanes
 - workflow-aware mission boards
@@ -92,7 +93,7 @@ Once published, install `OrbitForge` from the VS Code Marketplace or Open VSX.
 ### From VSIX
 
 ```bash
-code --install-extension orbitforge-vscode-0.8.0.vsix
+code --install-extension orbitforge-vscode-0.8.1.vsix
 ```
 
 ## Configure
@@ -104,6 +105,7 @@ Important settings:
 - `orbitforge.provider`
 - `orbitforge.baseUrl`
 - `orbitforge.model`
+  If the configured Ollama model is missing, OrbitForge will automatically fall back to an installed local model and tell you which one it used.
 - `orbitforge.apiKey`
 - `orbitforge.agentMode`
 - `orbitforge.workflow`

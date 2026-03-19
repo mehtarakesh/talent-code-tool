@@ -2,7 +2,7 @@
   "name": "orbitforge-vscode",
   "displayName": "OrbitForge",
   "description": "Lifecycle-first AI coding workspace for Ollama, LM Studio, Anthropic, OpenAI, and compatible endpoints.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "publisher": "mehtarakesh",
   "license": "Apache-2.0",
   "icon": "assets/icon.png",
@@ -116,8 +116,8 @@
         },
         "orbitforge.model": {
           "type": "string",
-          "default": "deepseek-coder:33b",
-          "description": "Default model identifier."
+          "default": "qwen2.5-coder:7b",
+          "description": "Default model identifier. OrbitForge will auto-fallback to an installed Ollama model if this one is unavailable."
         },
         "orbitforge.apiKey": {
           "type": "string",

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1
+
+- added Ollama model auto-detection with fallback to an installed local model
+- switched the default Ollama model to `qwen2.5-coder:7b`
+- improved missing-model errors so runs explain how to recover
+
 ## 0.8.0
 
 - added true per-lane streaming for parallel missions with lane headers

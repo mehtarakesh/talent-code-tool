@@ -98,7 +98,7 @@ export const defaultParallelAgents: AgentRoleId[] = ['architect', 'implementer',
 export const defaultWorkflow: AgentWorkflow = 'general'
 
 export const providerDefaults: Record<ProviderId, { baseUrl: string; model: string }> = {
-  ollama: { baseUrl: 'http://localhost:11434', model: 'deepseek-coder:33b' },
+  ollama: { baseUrl: 'http://localhost:11434', model: 'qwen2.5-coder:7b' },
   lmstudio: { baseUrl: 'http://localhost:1234/v1', model: 'deepseek-coder' },
   openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
   anthropic: { baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-5' },

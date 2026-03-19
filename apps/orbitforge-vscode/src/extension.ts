@@ -24,6 +24,10 @@ type TalentSettings = {
   stream: boolean
 }
 
+type ResolvedTalentSettings = TalentSettings & {
+  runtimeNote?: string
+}
+
 type ContextScope = 'workspace' | 'selection' | 'workspace+selection'
 
 type PanelContextSnapshot = {
@@ -99,6 +103,13 @@ const pinnedPresetsStateKey = 'orbitforge.pinnedPresets'
 const missionHistoryLimit = 12
 const streamChunkDelayMs = 14
 const streamChunkSize = 220
+const preferredOllamaModels = [
+  'qwen2.5-coder:7b',
+  'qwen2.5-coder:14b',
+  'qwen2.5-coder:32b',
+  'deepseek-r1:14b',
+  'deepseek-coder:33b',
+]
 
 const timelineStages: TimelineStage[] = [
   { id: 'context', label: 'Context packed' },
@@ -169,11 +180,93 @@ function getSettings(): TalentSettings {
   return {
     provider: config.get<ProviderId>('provider', 'ollama'),
     baseUrl: config.get<string>('baseUrl', 'http://localhost:11434'),
-    model: config.get<string>('model', 'deepseek-coder:33b'),
+    model: config.get<string>('model', 'qwen2.5-coder:7b'),
     apiKey: config.get<string>('apiKey', ''),
     agentMode: config.get<AgentMode>('agentMode', 'single'),
     workflow: config.get<AgentWorkflow>('workflow', 'general'),
     stream: config.get<boolean>('stream', true),
+  }
+}
+
+function normalizeModelName(value: string) {
+  return value.trim().toLowerCase()
+}
+
+async function readJsonResponse(response: Response) {
+  const text = await response.text()
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error(`Unexpected response: ${text.slice(0, 400)}`)
+  }
+}
+
+async function listOllamaModels(baseUrl: string) {
+  const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/tags`)
+
+  if (!response.ok) {
+    throw new Error(`OrbitForge could not inspect Ollama models at ${baseUrl}.`)
+  }
+
+  const payload = (await readJsonResponse(response)) as {
+    models?: Array<{ name?: string; model?: string }>
+  }
+
+  return (payload.models || [])
+    .map((entry) => entry.name || entry.model || '')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function pickOllamaFallbackModel(requestedModel: string, installedModels: string[]) {
+  const normalizedInstalled = new Map(installedModels.map((model) => [normalizeModelName(model), model] as const))
+  const requestedNormalized = normalizeModelName(requestedModel)
+
+  if (normalizedInstalled.has(requestedNormalized)) {
+    return requestedModel
+  }
+
+  for (const preferredModel of preferredOllamaModels) {
+    const matched = normalizedInstalled.get(normalizeModelName(preferredModel))
+    if (matched) {
+      return matched
+    }
+  }
+
+  const codingModel = installedModels.find((model) => /coder|code|deepseek|qwen/i.test(model))
+  return codingModel || installedModels[0]
+}
+
+async function resolveRuntimeSettings(settings = getSettings()): Promise<ResolvedTalentSettings> {
+  if (settings.provider !== 'ollama') {
+    return settings
+  }
+
+  let installedModels: string[] = []
+  try {
+    installedModels = await listOllamaModels(settings.baseUrl)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'OrbitForge could not reach Ollama.'
+    throw new Error(`${message} Start Ollama or update orbitforge.baseUrl.`)
+  }
+
+  if (!installedModels.length) {
+    throw new Error(
+      'Ollama is reachable but no local models are installed. Run `ollama pull qwen2.5-coder:7b` or pick an installed model in OrbitForge settings.'
+    )
+  }
+
+  const resolvedModel = pickOllamaFallbackModel(settings.model, installedModels)
+
+  if (normalizeModelName(resolvedModel) === normalizeModelName(settings.model)) {
+    return settings
+  }
+
+  return {
+    ...settings,
+    model: resolvedModel,
+    runtimeNote: `OrbitForge switched Ollama from ${settings.model} to ${resolvedModel} because the configured model is not installed locally.`,
   }
 }
 
@@ -263,6 +356,7 @@ async function collectWorkspaceSummary() {
 }
 
 async function collectPanelContext(settings = getSettings()): Promise<PanelContextSnapshot> {
+  const runtimeSettings = await resolveRuntimeSettings(settings).catch(() => settings)
   const files = await vscode.workspace.findFiles('**/*.{ts,tsx,js,jsx,py,md,json}', '**/node_modules/**', 40)
   const workspaceFolders = (vscode.workspace.workspaceFolders || []).map((folder) => folder.name)
   const activeFile = vscode.window.activeTextEditor
@@ -270,9 +364,9 @@ async function collectPanelContext(settings = getSettings()): Promise<PanelConte
     : 'No active file'
 
   return {
-    provider: settings.provider,
-    model: settings.model,
-    baseUrl: settings.baseUrl,
+    provider: runtimeSettings.provider,
+    model: runtimeSettings.model,
+    baseUrl: runtimeSettings.baseUrl,
     workspaceFolders,
     workspaceFileCount: files.length,
     activeFile,
@@ -863,17 +957,23 @@ async function requestTalent(
   settings = getSettings(),
   options?: { onToken?: (token: string) => void; onAgentToken?: (agentId: AgentLaneId, token: string) => void; forceStream?: boolean }
 ) {
-  const streamEnabled = Boolean(options?.forceStream) && settings.stream && supportsStreaming(settings.provider)
+  const runtimeSettings = await resolveRuntimeSettings(settings)
+  if (runtimeSettings.runtimeNote) {
+    void vscode.window.showWarningMessage(runtimeSettings.runtimeNote)
+  }
+
+  const streamEnabled =
+    Boolean(options?.forceStream) && runtimeSettings.stream && supportsStreaming(runtimeSettings.provider)
   const shouldStreamSingle = streamEnabled && mode === 'single' && options?.onToken
   const shouldStreamParallel = streamEnabled && mode === 'parallel' && options?.onAgentToken
 
   if (shouldStreamSingle || shouldStreamParallel) {
     const result = await runOrbitForgeTask(
       {
-        provider: settings.provider,
-        model: settings.model,
-        baseUrl: settings.baseUrl,
-        apiKey: settings.apiKey,
+        provider: runtimeSettings.provider,
+        model: runtimeSettings.model,
+        baseUrl: runtimeSettings.baseUrl,
+        apiKey: runtimeSettings.apiKey,
         prompt,
         workspaceContext: contextText,
         mode,
@@ -897,10 +997,10 @@ async function requestTalent(
   }
 
   const result = await runOrbitForgeTask({
-    provider: settings.provider,
-    model: settings.model,
-    baseUrl: settings.baseUrl,
-    apiKey: settings.apiKey,
+    provider: runtimeSettings.provider,
+    model: runtimeSettings.model,
+    baseUrl: runtimeSettings.baseUrl,
+    apiKey: runtimeSettings.apiKey,
     prompt,
     workspaceContext: contextText,
     mode,
@@ -1000,7 +1100,7 @@ async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMi
     workflow: options.workflow,
     contextScope: options.contextScope,
     provider: settings.provider,
-    model: settings.model,
+    model: runResult.model,
     source: options.source,
     createdAt: new Date().toISOString(),
     summary,
