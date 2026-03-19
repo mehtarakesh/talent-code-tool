@@ -6,6 +6,7 @@ OrbitForge brings the lifecycle-first OrbitForge experience into VS Code.
 
 Instead of stopping at chat and code generation, OrbitForge helps you run work with:
 
+- a guided session flow that feels closer to Claude Code and Codex than a static command list
 - provider parity across local and hosted models
 - parallel architect / implementer / critic lanes
 - workflow-aware mission boards
@@ -25,8 +26,10 @@ OrbitForge is built for the harder problems:
 
 ## Features
 
+- `OrbitForge: Guided Session`
+  Opens a low-friction launcher that lets you choose a preset, custom mission, or starter blueprint in a few clicks.
 - `OrbitForge: Open Panel`
-  Opens the OrbitForge panel with execution mode and workflow controls.
+  Opens the interactive OrbitForge panel with presets, blueprint launching, context-scope controls, and live workspace context.
 - `OrbitForge: Explain Selection`
   Reviews the current selection and suggests the safest next edit.
 - `OrbitForge: Plan From Workspace`
@@ -72,7 +75,7 @@ Once published, install `OrbitForge` from the VS Code Marketplace or Open VSX.
 ### From VSIX
 
 ```bash
-code --install-extension orbitforge-vscode-0.2.0.vsix
+code --install-extension orbitforge-vscode-0.3.0.vsix
 ```
 
 ## Configure
