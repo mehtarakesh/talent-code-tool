@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+- added a mission timeline inside the panel to show context, lanes, runtime, and completion stages
+- added streaming-style output playback so results feel live inside the panel
+- added pinned presets to keep your favorite missions one click away
+
 ## 0.4.0
 
 - added mission history with restore and rerun support inside VS Code

@@ -66,6 +66,7 @@ type ExecuteMissionOptions = {
   source: string
   settings?: TalentSettings
   onLog?: (line: string) => void
+  onStage?: (stage: TimelineStageId) => void
 }
 
 type ExecuteMissionResult = {
@@ -76,8 +77,24 @@ type ExecuteMissionResult = {
   historyEntry: MissionHistoryEntry
 }
 
+type TimelineStageId = 'idle' | 'context' | 'lanes' | 'runtime' | 'synthesis' | 'complete' | 'failed'
+
+type TimelineStage = {
+  id: TimelineStageId
+  label: string
+}
+
 const missionHistoryStateKey = 'orbitforge.missionHistory'
+const pinnedPresetsStateKey = 'orbitforge.pinnedPresets'
 const missionHistoryLimit = 12
+
+const timelineStages: TimelineStage[] = [
+  { id: 'context', label: 'Context packed' },
+  { id: 'lanes', label: 'Lanes active' },
+  { id: 'runtime', label: 'Runtime running' },
+  { id: 'synthesis', label: 'Synthesizing' },
+  { id: 'complete', label: 'Complete' },
+]
 
 const workflowLabels: Record<AgentWorkflow, string> = {
   general: 'General Build',
@@ -234,6 +251,15 @@ function getMissionHistory(extensionContext: vscode.ExtensionContext) {
   return extensionContext.workspaceState.get<MissionHistoryEntry[]>(missionHistoryStateKey, [])
 }
 
+function getPinnedPresets(extensionContext: vscode.ExtensionContext) {
+  return extensionContext.workspaceState.get<string[]>(pinnedPresetsStateKey, [])
+}
+
+async function savePinnedPresets(extensionContext: vscode.ExtensionContext, presetIds: string[]) {
+  await extensionContext.workspaceState.update(pinnedPresetsStateKey, presetIds)
+  return presetIds
+}
+
 async function saveMissionHistory(extensionContext: vscode.ExtensionContext, entry: MissionHistoryEntry) {
   const existing = getMissionHistory(extensionContext)
   const filtered = existing.filter((item) => item.id !== entry.id)
@@ -266,6 +292,33 @@ function renderHistoryCards(entries: MissionHistoryEntry[]) {
           <button class="ghost history-action" data-history-action="rerun" data-history-id="${entry.id}">Rerun</button>
         </div>
       </article>`
+    )
+    .join('')
+}
+
+function renderPinnedPresetCards(presetIds: string[]) {
+  const pinned = presetIds
+    .map((presetId) => promptPresets.find((preset) => preset.id === presetId))
+    .filter(Boolean) as PromptPreset[]
+
+  if (!pinned.length) {
+    return `<div class="empty-state">Pin a preset with /pin &lt;preset-id&gt; to keep it here.</div>`
+  }
+
+  return pinned
+    .map(
+      (preset) => `
+      <button
+        class="preset-card"
+        data-preset-id="${preset.id}"
+        data-prompt="${escapeHtml(preset.prompt)}"
+        data-mode="${preset.mode}"
+        data-workflow="${preset.workflow}"
+        data-scope="${preset.contextScope}"
+      >
+        <span class="preset-title">${escapeHtml(preset.label)}</span>
+        <span class="preset-summary">${escapeHtml(preset.summary)}</span>
+      </button>`
     )
     .join('')
 }
@@ -340,10 +393,23 @@ function renderSlashHints() {
     '/blueprint parallel-review-kit',
     '/history',
     '/rerun last',
+    '/pin workspace-plan',
+    '/pins',
   ]
 
   return commands
     .map((command) => `<button class="slash-chip" data-slash="${escapeHtml(command)}">${escapeHtml(command)}</button>`)
+    .join('')
+}
+
+function renderTimeline(stageId: TimelineStageId) {
+  return timelineStages
+    .map((stage, index) => {
+      const isActive = stage.id === stageId
+      const isComplete = timelineStages.findIndex((item) => item.id === stageId) > index
+      const stateClass = isActive ? 'timeline-active' : isComplete ? 'timeline-complete' : ''
+      return `<div class="timeline-step ${stateClass}"><span>${index + 1}</span>${escapeHtml(stage.label)}</div>`
+    })
     .join('')
 }
 
@@ -447,10 +513,12 @@ async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMi
   options.onLog?.(`Provider lane: ${settings.provider} • ${settings.model}`)
   options.onLog?.(`Workflow: ${workflowLabels[options.workflow]} • ${options.mode === 'parallel' ? 'Parallel trio' : 'Single lane'}`)
 
+  options.onStage?.('context')
   const { contextText, contextLabel } = await buildContext(options.contextScope)
   options.onLog?.(`Context packed: ${contextLabel}`)
 
   if (options.mode === 'parallel') {
+    options.onStage?.('lanes')
     options.onLog?.('Parallel lanes active: architect, implementer, critic')
   }
 
@@ -458,6 +526,7 @@ async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMi
     options.onLog?.(`Blueprint loaded: ${options.blueprint.title}`)
   }
 
+  options.onStage?.('runtime')
   options.onLog?.('Dispatching OrbitForge runtime')
   const output = await requestTalent(
     options.prompt,
@@ -468,6 +537,7 @@ async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMi
     settings
   )
 
+  options.onStage?.('synthesis')
   const summary = extractMissionSummary(output)
   const historyEntry: MissionHistoryEntry = {
     id: `mission-${Date.now()}`,
@@ -486,6 +556,7 @@ async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMi
   }
 
   const history = await saveMissionHistory(options.extensionContext, historyEntry)
+  options.onStage?.('complete')
   options.onLog?.('Mission finished and saved to workspace history')
 
   return {
@@ -515,6 +586,9 @@ async function runInteractiveMission(options: ExecuteMissionOptions & { viewColu
             progress.report({ message: 'Running agents' })
           }
           options.onLog?.(line)
+        },
+        onStage: (stage) => {
+          options.onStage?.(stage)
         },
       })
 
@@ -792,6 +866,8 @@ function renderPanel(
   initialWorkflow: AgentWorkflow,
   snapshot: PanelContextSnapshot,
   historyEntries: MissionHistoryEntry[],
+  pinnedPresets: string[],
+  timelineStage: TimelineStageId = 'idle',
   output = 'Pick a preset, use a slash command, rerun history, or launch a blueprint. OrbitForge keeps the loop inside this workspace.'
 ) {
   return `<!DOCTYPE html>
@@ -823,13 +899,13 @@ function renderPanel(
         padding: 20px;
       }
       .shell { display: grid; gap: 16px; }
-      .hero, .glass, pre, .logs {
+      .hero, .glass, pre, .logs, .timeline {
         border: 1px solid var(--line);
         border-radius: 20px;
         background: var(--panel);
         box-shadow: 0 18px 48px rgba(2, 6, 23, 0.34);
       }
-      .hero, .glass { padding: 18px; }
+      .hero, .glass, .timeline { padding: 18px; }
       .eyebrow {
         font-size: 11px;
         letter-spacing: 0.18em;
@@ -963,6 +1039,44 @@ function renderPanel(
         font-size: 12px;
         line-height: 1.5;
       }
+      .timeline-row {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      }
+      .timeline-step {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 10px 12px;
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .timeline-step span {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid var(--line);
+        font-size: 11px;
+        color: var(--text);
+      }
+      .timeline-active {
+        border-color: rgba(105, 245, 225, 0.4);
+        color: var(--text);
+      }
+      .timeline-active span {
+        background: rgba(105, 245, 225, 0.2);
+      }
+      .timeline-complete {
+        border-color: rgba(125, 211, 252, 0.35);
+        color: #d6e4f5;
+      }
       pre {
         margin: 0;
         padding: 18px;
@@ -983,7 +1097,18 @@ function renderPanel(
         <div id="context-grid" class="context-grid">${renderContextCards(snapshot)}</div>
       </section>
 
+      <section class="timeline">
+        <div class="section-title">Mission timeline</div>
+        <div id="timeline-row" class="timeline-row">${renderTimeline(timelineStage)}</div>
+      </section>
+
       <div class="grid">
+        <section class="glass">
+          <div class="section-title">Pinned presets</div>
+          <div id="pinned-grid" class="preset-grid">${renderPinnedPresetCards(pinnedPresets)}</div>
+          <div class="hint">Use /pin &lt;preset-id&gt; to keep a preset here.</div>
+        </section>
+
         <section class="glass">
           <div class="section-title">Preset launches</div>
           <div class="preset-grid">${renderPresetCards()}</div>
@@ -991,19 +1116,6 @@ function renderPanel(
           <div class="section-title" style="margin-top: 18px;">Slash commands</div>
           <div class="slash-row">${renderSlashHints()}</div>
           <div class="hint">Type slash commands directly into the mission prompt to reconfigure the session, run a blueprint, inspect history, or rerun a saved mission.</div>
-        </section>
-
-        <section class="glass">
-          <div class="section-title">Starter blueprint</div>
-          <label>
-            <div class="label"><span>Lifecycle blueprint</span><span>No-code mission pack</span></div>
-            <select id="blueprint">${renderBlueprintOptions()}</select>
-          </label>
-          <div class="button-row">
-            <button class="primary" id="runBlueprint">Run Blueprint</button>
-            <button class="secondary" id="guided">Guided Session</button>
-          </div>
-          <div class="hint">Blueprints start with intake, context packing, parallel lanes, approval, validation, and publish structure already mapped out.</div>
         </section>
       </div>
 
@@ -1071,10 +1183,11 @@ function renderPanel(
       const mode = document.getElementById('mode');
       const workflow = document.getElementById('workflow');
       const scope = document.getElementById('scope');
-      const blueprint = document.getElementById('blueprint');
       const contextGrid = document.getElementById('context-grid');
       const historyStack = document.getElementById('history-stack');
+      const pinnedGrid = document.getElementById('pinned-grid');
       const logList = document.getElementById('log-list');
+      const timelineRow = document.getElementById('timeline-row');
 
       const setStatus = (value) => {
         status.textContent = value || '';
@@ -1089,6 +1202,21 @@ function renderPanel(
         li.className = 'log-entry';
         li.textContent = value;
         logList.prepend(li);
+      };
+
+      const streamOutput = (text, reset) => {
+        if (reset) {
+          output.textContent = '';
+        }
+        const chars = text.split('');
+        let index = 0;
+        const interval = setInterval(() => {
+          output.textContent += chars[index];
+          index += 1;
+          if (index >= chars.length) {
+            clearInterval(interval);
+          }
+        }, 8);
       };
 
       document.querySelectorAll('[data-preset-id]').forEach((button) => {
@@ -1133,21 +1261,6 @@ function renderPanel(
         });
       });
 
-      document.getElementById('runBlueprint').addEventListener('click', () => {
-        clearLogs();
-        setStatus('Launching starter blueprint...');
-        output.textContent = 'Running OrbitForge blueprint...';
-        vscode.postMessage({
-          type: 'runBlueprint',
-          blueprintId: blueprint.value,
-          prompt: prompt.value
-        });
-      });
-
-      document.getElementById('guided').addEventListener('click', () => {
-        vscode.postMessage({ type: 'guidedSession' });
-      });
-
       document.getElementById('refresh').addEventListener('click', () => {
         setStatus('Refreshing workspace context...');
         vscode.postMessage({ type: 'refreshContext' });
@@ -1174,6 +1287,22 @@ function renderPanel(
         });
       });
 
+      pinnedGrid.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        const presetButton = target.closest('[data-preset-id]');
+        if (!presetButton) {
+          return;
+        }
+        prompt.value = presetButton.dataset.prompt || prompt.value;
+        mode.value = presetButton.dataset.mode || mode.value;
+        workflow.value = presetButton.dataset.workflow || workflow.value;
+        scope.value = presetButton.dataset.scope || scope.value;
+        setStatus('Pinned preset loaded.');
+      });
+
       window.addEventListener('message', (event) => {
         const message = event.data;
         if (message.type === 'result') {
@@ -1185,6 +1314,12 @@ function renderPanel(
         }
         if (message.type === 'history') {
           historyStack.innerHTML = message.html;
+        }
+        if (message.type === 'pins') {
+          pinnedGrid.innerHTML = message.html;
+        }
+        if (message.type === 'timeline') {
+          timelineRow.innerHTML = message.html;
         }
         if (message.type === 'controls') {
           if (typeof message.prompt === 'string') prompt.value = message.prompt;
@@ -1198,6 +1333,9 @@ function renderPanel(
         }
         if (message.type === 'log') {
           addLog(message.entry);
+        }
+        if (message.type === 'stream') {
+          streamOutput(message.text || '', Boolean(message.reset));
         }
       });
     </script>
@@ -1222,6 +1360,17 @@ export function activate(context: vscode.ExtensionContext) {
       type: 'history',
       html: renderHistoryCards(getMissionHistory(context)),
     })
+    panel.webview.postMessage({
+      type: 'pins',
+      html: renderPinnedPresetCards(getPinnedPresets(context)),
+    })
+  }
+
+  const pushTimeline = (panel: vscode.WebviewPanel, stage: TimelineStageId) => {
+    panel.webview.postMessage({
+      type: 'timeline',
+      html: renderTimeline(stage),
+    })
   }
 
   const runMissionInPanel = async (
@@ -1237,6 +1386,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   ) => {
     panel.webview.postMessage({ type: 'clearLog' })
+    pushTimeline(panel, 'context')
 
     try {
       const result = await executeMission({
@@ -1248,14 +1398,23 @@ export function activate(context: vscode.ExtensionContext) {
             entry: line,
           })
         },
+        onStage: (stage) => {
+          pushTimeline(panel, stage)
+        },
       })
 
+      panel.webview.postMessage({
+        type: 'stream',
+        reset: true,
+        text: result.output,
+      })
       panel.webview.postMessage({
         type: 'result',
         status: `Mission complete using ${result.contextLabel.toLowerCase()} context.`,
         output: result.output,
       })
       await postPanelState(panel)
+      pushTimeline(panel, 'complete')
     } catch (error) {
       panel.webview.postMessage({
         type: 'log',
@@ -1266,6 +1425,7 @@ export function activate(context: vscode.ExtensionContext) {
         status: 'Run failed.',
         output: error instanceof Error ? error.message : 'OrbitForge request failed.',
       })
+      pushTimeline(panel, 'failed')
     }
   }
 
@@ -1290,6 +1450,9 @@ export function activate(context: vscode.ExtensionContext) {
           '/history',
           '/rerun last',
           '/rerun <mission-id>',
+          '/pin <preset-id>',
+          '/unpin <preset-id>',
+          '/pins',
         ].join('\n'),
       })
       return true
@@ -1304,6 +1467,68 @@ export function activate(context: vscode.ExtensionContext) {
         type: 'result',
         status: 'Loaded recent mission history.',
         output: formatHistoryText(getMissionHistory(context)),
+      })
+      return true
+    }
+
+    if (command === '/pins') {
+      const pins = getPinnedPresets(context)
+      panel.webview.postMessage({
+        type: 'pins',
+        html: renderPinnedPresetCards(pins),
+      })
+      panel.webview.postMessage({
+        type: 'result',
+        status: 'Pinned presets refreshed.',
+        output: pins.length ? `Pinned presets: ${pins.join(', ')}` : 'No pinned presets yet.',
+      })
+      return true
+    }
+
+    if (command === '/pin') {
+      const preset = findPreset(value)
+      if (!preset) {
+        panel.webview.postMessage({
+          type: 'result',
+          status: 'Preset not found.',
+          output: `Could not find an OrbitForge preset for "${value}".`,
+        })
+        return true
+      }
+      const pins = Array.from(new Set([...getPinnedPresets(context), preset.id]))
+      await savePinnedPresets(context, pins)
+      panel.webview.postMessage({
+        type: 'pins',
+        html: renderPinnedPresetCards(pins),
+      })
+      panel.webview.postMessage({
+        type: 'result',
+        status: 'Preset pinned.',
+        output: `${preset.label} pinned to the panel.`,
+      })
+      return true
+    }
+
+    if (command === '/unpin') {
+      const preset = findPreset(value)
+      if (!preset) {
+        panel.webview.postMessage({
+          type: 'result',
+          status: 'Preset not found.',
+          output: `Could not find an OrbitForge preset for "${value}".`,
+        })
+        return true
+      }
+      const pins = getPinnedPresets(context).filter((id) => id !== preset.id)
+      await savePinnedPresets(context, pins)
+      panel.webview.postMessage({
+        type: 'pins',
+        html: renderPinnedPresetCards(pins),
+      })
+      panel.webview.postMessage({
+        type: 'result',
+        status: 'Preset unpinned.',
+        output: `${preset.label} removed from pinned presets.`,
       })
       return true
     }
@@ -1429,7 +1654,14 @@ export function activate(context: vscode.ExtensionContext) {
       retainContextWhenHidden: true,
     })
 
-    panel.webview.html = renderPanel(settings.agentMode, settings.workflow, snapshot, getMissionHistory(context))
+    panel.webview.html = renderPanel(
+      settings.agentMode,
+      settings.workflow,
+      snapshot,
+      getMissionHistory(context),
+      getPinnedPresets(context),
+      'idle'
+    )
 
     panel.webview.onDidReceiveMessage(
       async (message) => {
@@ -1488,30 +1720,6 @@ export function activate(context: vscode.ExtensionContext) {
             })
             return
           }
-        }
-
-        if (message.type === 'runBlueprint') {
-          const blueprint = builtInLifecycleBlueprints.find((item) => item.blueprintId === message.blueprintId)
-
-          if (!blueprint) {
-            panel.webview.postMessage({
-              type: 'result',
-              status: 'Could not find that starter blueprint.',
-              output: 'The selected OrbitForge blueprint is missing from the installed extension bundle.',
-            })
-            return
-          }
-
-          await runMissionInPanel(panel, {
-            title: blueprint.title,
-            prompt: typeof message.prompt === 'string' && message.prompt.trim() ? message.prompt.trim() : blueprint.goal,
-            mode: parseBlueprintMode(blueprint),
-            workflow: parseBlueprintWorkflow(blueprint),
-            contextScope: 'workspace+selection',
-            blueprint,
-            source: 'panel-blueprint',
-          })
-          return
         }
 
         if (message.type !== 'runPrompt') {
