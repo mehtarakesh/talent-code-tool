@@ -2,7 +2,7 @@
   "name": "orbitforge-vscode",
   "displayName": "OrbitForge",
   "description": "Lifecycle-first AI coding workspace for Ollama, LM Studio, Anthropic, OpenAI, and compatible endpoints.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "mehtarakesh",
   "license": "Apache-2.0",
   "icon": "assets/icon.png",
@@ -42,6 +42,7 @@
   "activationEvents": [
     "onCommand:orbitforge.guidedSession",
     "onCommand:orbitforge.openPanel",
+    "onCommand:orbitforge.openMissionHistory",
     "onCommand:orbitforge.explainSelection",
     "onCommand:orbitforge.generateFromWorkspace",
     "onCommand:orbitforge.parallelWorkspacePlan",
@@ -54,6 +55,10 @@
       {
         "command": "orbitforge.guidedSession",
         "title": "OrbitForge: Guided Session"
+      },
+      {
+        "command": "orbitforge.openMissionHistory",
+        "title": "OrbitForge: Mission History"
       },
       {
         "command": "orbitforge.openPanel",

@@ -39,6 +39,46 @@ type PromptPreset = {
   contextScope: ContextScope
 }
 
+type MissionHistoryEntry = {
+  id: string
+  title: string
+  prompt: string
+  mode: AgentMode
+  workflow: AgentWorkflow
+  contextScope: ContextScope
+  provider: ProviderId
+  model: string
+  source: string
+  createdAt: string
+  summary: string
+  blueprintId?: string
+  blueprint?: OrbitForgeLifecycleBlueprint
+}
+
+type ExecuteMissionOptions = {
+  title: string
+  prompt: string
+  mode: AgentMode
+  workflow: AgentWorkflow
+  contextScope: ContextScope
+  extensionContext: vscode.ExtensionContext
+  blueprint?: OrbitForgeLifecycleBlueprint
+  source: string
+  settings?: TalentSettings
+  onLog?: (line: string) => void
+}
+
+type ExecuteMissionResult = {
+  output: string
+  contextLabel: string
+  summary: string
+  history: MissionHistoryEntry[]
+  historyEntry: MissionHistoryEntry
+}
+
+const missionHistoryStateKey = 'orbitforge.missionHistory'
+const missionHistoryLimit = 12
+
 const workflowLabels: Record<AgentWorkflow, string> = {
   general: 'General Build',
   review: 'Parallel Review',
@@ -131,6 +171,29 @@ function escapeHtml(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+function normalizeLookup(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, '-')
+}
+
+function truncate(value: string, max = 120) {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= max) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, max - 1)}…`
+}
+
+function extractMissionSummary(output: string) {
+  const firstMeaningfulLine =
+    output
+      .split('\n')
+      .map((line) => line.replace(/^#+\s*/, '').trim())
+      .find((line) => Boolean(line)) || 'OrbitForge completed the mission.'
+
+  return truncate(firstMeaningfulLine, 140)
+}
+
 function getActiveSelectionText() {
   const editor = vscode.window.activeTextEditor
 
@@ -145,6 +208,7 @@ async function collectWorkspaceSummary() {
   const files = await vscode.workspace.findFiles('**/*.{ts,tsx,js,jsx,py,md,json}', '**/node_modules/**', 40)
   const fileLines = files.map((file) => vscode.workspace.asRelativePath(file)).join('\n')
   const folderLines = (vscode.workspace.workspaceFolders || []).map((folder) => folder.name).join(', ')
+
   return [`Workspace folders: ${folderLines || 'none'}`, 'Tracked files:', fileLines || 'No workspace files found.'].join('\n')
 }
 
@@ -164,6 +228,157 @@ async function collectPanelContext(settings = getSettings()): Promise<PanelConte
     activeFile,
     hasSelection: Boolean(getActiveSelectionText()),
   }
+}
+
+function getMissionHistory(extensionContext: vscode.ExtensionContext) {
+  return extensionContext.workspaceState.get<MissionHistoryEntry[]>(missionHistoryStateKey, [])
+}
+
+async function saveMissionHistory(extensionContext: vscode.ExtensionContext, entry: MissionHistoryEntry) {
+  const existing = getMissionHistory(extensionContext)
+  const filtered = existing.filter((item) => item.id !== entry.id)
+  const next = [entry, ...filtered].slice(0, missionHistoryLimit)
+  await extensionContext.workspaceState.update(missionHistoryStateKey, next)
+  return next
+}
+
+function renderHistoryCards(entries: MissionHistoryEntry[]) {
+  if (!entries.length) {
+    return `<div class="empty-state">No missions yet. Run a preset, blueprint, or custom mission and it will stay here for quick restore or rerun.</div>`
+  }
+
+  return entries
+    .map(
+      (entry) => `
+      <article class="history-card">
+        <div class="history-title-row">
+          <div>
+            <div class="history-title">${escapeHtml(entry.title)}</div>
+            <div class="history-meta">${escapeHtml(workflowLabels[entry.workflow])} • ${
+              entry.mode === 'parallel' ? 'Parallel trio' : 'Single lane'
+            } • ${escapeHtml(new Date(entry.createdAt).toLocaleString())}</div>
+          </div>
+          <div class="history-badge">${escapeHtml(entry.source)}</div>
+        </div>
+        <div class="history-summary">${escapeHtml(entry.summary)}</div>
+        <div class="history-actions">
+          <button class="secondary history-action" data-history-action="restore" data-history-id="${entry.id}">Restore</button>
+          <button class="ghost history-action" data-history-action="rerun" data-history-id="${entry.id}">Rerun</button>
+        </div>
+      </article>`
+    )
+    .join('')
+}
+
+function formatHistoryText(entries: MissionHistoryEntry[]) {
+  if (!entries.length) {
+    return 'No OrbitForge missions have been saved in this workspace yet.'
+  }
+
+  return [
+    'Recent OrbitForge missions:',
+    '',
+    ...entries.map(
+      (entry, index) =>
+        `${index + 1}. ${entry.title} [${workflowLabels[entry.workflow]} | ${
+          entry.mode === 'parallel' ? 'parallel' : 'single'
+        } | ${entry.contextScope}] - ${entry.summary}`
+    ),
+  ].join('\n')
+}
+
+function renderContextCards(snapshot: PanelContextSnapshot) {
+  const cards = [
+    `Provider: ${snapshot.provider}`,
+    `Model: ${snapshot.model}`,
+    `Workspace files: ${snapshot.workspaceFileCount}`,
+    `Active file: ${snapshot.activeFile}`,
+    `Selection: ${snapshot.hasSelection ? 'ready' : 'none'}`,
+  ]
+
+  return cards.map((card) => `<div class="context-pill">${escapeHtml(card)}</div>`).join('')
+}
+
+function renderPresetCards() {
+  return promptPresets
+    .map(
+      (preset) => `
+      <button
+        class="preset-card"
+        data-preset-id="${preset.id}"
+        data-prompt="${escapeHtml(preset.prompt)}"
+        data-mode="${preset.mode}"
+        data-workflow="${preset.workflow}"
+        data-scope="${preset.contextScope}"
+      >
+        <span class="preset-title">${escapeHtml(preset.label)}</span>
+        <span class="preset-summary">${escapeHtml(preset.summary)}</span>
+      </button>`
+    )
+    .join('')
+}
+
+function renderBlueprintOptions() {
+  return builtInLifecycleBlueprints
+    .map(
+      (blueprint) =>
+        `<option value="${escapeHtml(blueprint.blueprintId)}">${escapeHtml(blueprint.title)} - ${escapeHtml(
+          blueprint.summary
+        )}</option>`
+    )
+    .join('')
+}
+
+function renderSlashHints() {
+  const commands = [
+    '/help',
+    '/preset workspace-plan',
+    '/preset parallel-release',
+    '/mode parallel',
+    '/workflow review',
+    '/scope selection',
+    '/blueprint parallel-review-kit',
+    '/history',
+    '/rerun last',
+  ]
+
+  return commands
+    .map((command) => `<button class="slash-chip" data-slash="${escapeHtml(command)}">${escapeHtml(command)}</button>`)
+    .join('')
+}
+
+function findPreset(query: string) {
+  const normalized = normalizeLookup(query)
+  return promptPresets.find(
+    (preset) => preset.id === normalized || normalizeLookup(preset.label) === normalized
+  )
+}
+
+function findBlueprint(query: string) {
+  const normalized = normalizeLookup(query)
+  return builtInLifecycleBlueprints.find(
+    (blueprint) => blueprint.blueprintId === normalized || normalizeLookup(blueprint.title) === normalized
+  )
+}
+
+function parseBlueprintWorkflow(blueprint: OrbitForgeLifecycleBlueprint): AgentWorkflow {
+  const workflow = blueprint.nodes.find((node) => node.componentId === 'parallel-lanes')?.config?.workflow
+
+  if (
+    workflow === 'review' ||
+    workflow === 'migration' ||
+    workflow === 'incident' ||
+    workflow === 'release' ||
+    workflow === 'general'
+  ) {
+    return workflow
+  }
+
+  return 'general'
+}
+
+function parseBlueprintMode(blueprint: OrbitForgeLifecycleBlueprint): AgentMode {
+  return blueprint.nodes.some((node) => node.componentId === 'parallel-lanes') ? 'parallel' : 'single'
 }
 
 async function requestTalent(
@@ -187,26 +402,6 @@ async function requestTalent(
   })
 
   return `${result.summary}\n\n${result.output}`
-}
-
-function parseBlueprintWorkflow(blueprint: OrbitForgeLifecycleBlueprint): AgentWorkflow {
-  const workflow = blueprint.nodes.find((node) => node.componentId === 'parallel-lanes')?.config?.workflow
-
-  if (
-    workflow === 'review' ||
-    workflow === 'migration' ||
-    workflow === 'incident' ||
-    workflow === 'release' ||
-    workflow === 'general'
-  ) {
-    return workflow
-  }
-
-  return 'general'
-}
-
-function parseBlueprintMode(blueprint: OrbitForgeLifecycleBlueprint): AgentMode {
-  return blueprint.nodes.some((node) => node.componentId === 'parallel-lanes') ? 'parallel' : 'single'
 }
 
 async function openResultDocument(title: string, content: string, viewColumn = vscode.ViewColumn.Beside) {
@@ -246,16 +441,63 @@ async function buildContext(scope: ContextScope) {
   }
 }
 
-async function runInteractiveMission(options: {
-  title: string
-  prompt: string
-  mode: AgentMode
-  workflow: AgentWorkflow
-  contextScope: ContextScope
-  blueprint?: OrbitForgeLifecycleBlueprint
-  viewColumn?: vscode.ViewColumn
-  progressTitle?: string
-}) {
+async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMissionResult> {
+  const settings = options.settings || getSettings()
+  options.onLog?.(`Mission accepted: ${options.title}`)
+  options.onLog?.(`Provider lane: ${settings.provider} • ${settings.model}`)
+  options.onLog?.(`Workflow: ${workflowLabels[options.workflow]} • ${options.mode === 'parallel' ? 'Parallel trio' : 'Single lane'}`)
+
+  const { contextText, contextLabel } = await buildContext(options.contextScope)
+  options.onLog?.(`Context packed: ${contextLabel}`)
+
+  if (options.mode === 'parallel') {
+    options.onLog?.('Parallel lanes active: architect, implementer, critic')
+  }
+
+  if (options.blueprint) {
+    options.onLog?.(`Blueprint loaded: ${options.blueprint.title}`)
+  }
+
+  options.onLog?.('Dispatching OrbitForge runtime')
+  const output = await requestTalent(
+    options.prompt,
+    contextText,
+    options.mode,
+    options.workflow,
+    options.blueprint,
+    settings
+  )
+
+  const summary = extractMissionSummary(output)
+  const historyEntry: MissionHistoryEntry = {
+    id: `mission-${Date.now()}`,
+    title: options.title,
+    prompt: options.prompt,
+    mode: options.mode,
+    workflow: options.workflow,
+    contextScope: options.contextScope,
+    provider: settings.provider,
+    model: settings.model,
+    source: options.source,
+    createdAt: new Date().toISOString(),
+    summary,
+    blueprintId: options.blueprint?.blueprintId,
+    blueprint: options.blueprint,
+  }
+
+  const history = await saveMissionHistory(options.extensionContext, historyEntry)
+  options.onLog?.('Mission finished and saved to workspace history')
+
+  return {
+    output,
+    contextLabel,
+    summary,
+    history,
+    historyEntry,
+  }
+}
+
+async function runInteractiveMission(options: ExecuteMissionOptions & { viewColumn?: vscode.ViewColumn; progressTitle?: string }) {
   const progressTitle = options.progressTitle || `OrbitForge • ${options.title}`
 
   return vscode.window.withProgress(
@@ -266,26 +508,29 @@ async function runInteractiveMission(options: {
     },
     async (progress) => {
       progress.report({ message: 'Collecting context' })
-      const { contextText, contextLabel } = await buildContext(options.contextScope)
-      progress.report({ message: 'Running agents' })
-      const output = await requestTalent(
-        options.prompt,
-        contextText,
-        options.mode,
-        options.workflow,
-        options.blueprint
-      )
+      const result = await executeMission({
+        ...options,
+        onLog: (line) => {
+          if (line.includes('Dispatching OrbitForge runtime')) {
+            progress.report({ message: 'Running agents' })
+          }
+          options.onLog?.(line)
+        },
+      })
+
       const heading = `${options.title}\n\n- Workflow: ${workflowLabels[options.workflow]}\n- Mode: ${
         options.mode === 'parallel' ? 'Parallel trio' : 'Single lane'
-      }\n- Context: ${contextLabel}`
+      }\n- Context: ${result.contextLabel}`
 
-      await openResultDocument(heading, output, options.viewColumn)
+      await openResultDocument(heading, result.output, options.viewColumn)
+      return result
     }
   )
 }
 
 async function runBlueprintCommand(
   blueprint: OrbitForgeLifecycleBlueprint,
+  extensionContext: vscode.ExtensionContext,
   promptOverride?: string,
   viewColumn = vscode.ViewColumn.Beside
 ) {
@@ -308,23 +553,27 @@ async function runBlueprintCommand(
     workflow: parseBlueprintWorkflow(blueprint),
     contextScope: 'workspace+selection',
     blueprint,
+    extensionContext,
+    source: 'starter-blueprint',
     viewColumn,
     progressTitle: `OrbitForge • ${blueprint.title}`,
   })
 }
 
-async function runPreset(preset: PromptPreset, viewColumn = vscode.ViewColumn.Beside) {
+async function runPreset(preset: PromptPreset, extensionContext: vscode.ExtensionContext, viewColumn = vscode.ViewColumn.Beside) {
   await runInteractiveMission({
     title: preset.label,
     prompt: preset.prompt,
     mode: preset.mode,
     workflow: preset.workflow,
     contextScope: preset.contextScope,
+    extensionContext,
+    source: `preset:${preset.id}`,
     viewColumn,
   })
 }
 
-async function launchStarterBlueprintPicker() {
+async function launchStarterBlueprintPicker(extensionContext: vscode.ExtensionContext) {
   const selected = await vscode.window.showQuickPick(
     builtInLifecycleBlueprints.map((blueprint) => ({
       label: blueprint.title,
@@ -342,21 +591,86 @@ async function launchStarterBlueprintPicker() {
     return
   }
 
-  await runBlueprintCommand(selected.blueprint, undefined, vscode.ViewColumn.Beside)
+  await runBlueprintCommand(selected.blueprint, extensionContext, undefined, vscode.ViewColumn.Beside)
 }
 
-async function launchGuidedSession(openPanel: () => Promise<void>) {
+async function openMissionHistoryPicker(extensionContext: vscode.ExtensionContext) {
+  const history = getMissionHistory(extensionContext)
+
+  if (!history.length) {
+    vscode.window.showInformationMessage('No OrbitForge mission history in this workspace yet.')
+    return
+  }
+
+  const pick = await vscode.window.showQuickPick(
+    history.map((entry) => ({
+      label: entry.title,
+      description: `${workflowLabels[entry.workflow]} • ${entry.mode === 'parallel' ? 'parallel' : 'single'} • ${
+        entry.contextScope
+      }`,
+      detail: entry.summary,
+      entry,
+    })),
+    {
+      title: 'OrbitForge mission history',
+      placeHolder: 'Choose a previous mission to rerun or restore',
+    }
+  )
+
+  if (!pick) {
+    return
+  }
+
+  const action = await vscode.window.showQuickPick(
+    [
+      { label: 'Rerun mission', action: 'rerun' as const },
+      { label: 'Open interactive panel', action: 'panel' as const },
+    ],
+    {
+      title: pick.entry.title,
+      placeHolder: 'Choose how to continue from this mission',
+    }
+  )
+
+  if (!action) {
+    return
+  }
+
+  if (action.action === 'panel') {
+    await vscode.commands.executeCommand('orbitforge.openPanel')
+    return
+  }
+
+  await runInteractiveMission({
+    title: `${pick.entry.title} (rerun)`,
+    prompt: pick.entry.prompt,
+    mode: pick.entry.mode,
+    workflow: pick.entry.workflow,
+    contextScope: pick.entry.contextScope,
+    blueprint: pick.entry.blueprint,
+    extensionContext,
+    source: 'history-rerun',
+    viewColumn: vscode.ViewColumn.Beside,
+  })
+}
+
+async function launchGuidedSession(openPanel: () => Promise<void>, extensionContext: vscode.ExtensionContext) {
   const action = await vscode.window.showQuickPick(
     [
       {
         label: 'Open interactive panel',
-        description: 'Stay in a Codex / Claude-style workspace with presets and live controls.',
+        description: 'Stay in a Claude Code / Codex-style workspace with presets, slash commands, and history.',
         action: 'panel' as const,
       },
       {
         label: 'Run starter blueprint',
         description: 'Pick a lifecycle blueprint and run it with minimal setup.',
         action: 'blueprint' as const,
+      },
+      {
+        label: 'Open mission history',
+        description: 'Rerun or continue from a previous OrbitForge mission.',
+        action: 'history' as const,
       },
       ...promptPresets.map((preset) => ({
         label: preset.label,
@@ -385,13 +699,18 @@ async function launchGuidedSession(openPanel: () => Promise<void>) {
     return
   }
 
+  if (action.action === 'history') {
+    await openMissionHistoryPicker(extensionContext)
+    return
+  }
+
   if (action.action === 'blueprint') {
-    await launchStarterBlueprintPicker()
+    await launchStarterBlueprintPicker(extensionContext)
     return
   }
 
   if (action.action === 'preset' && action.preset) {
-    await runPreset(action.preset)
+    await runPreset(action.preset, extensionContext)
     return
   }
 
@@ -463,56 +782,17 @@ async function launchGuidedSession(openPanel: () => Promise<void>) {
     mode: modePick.mode,
     workflow: workflowPick.workflow,
     contextScope: scopePick.scope,
+    extensionContext,
+    source: 'guided-session',
   })
-}
-
-function renderPresetCards() {
-  return promptPresets
-    .map(
-      (preset) => `
-      <button
-        class="preset-card"
-        data-preset-id="${preset.id}"
-        data-prompt="${escapeHtml(preset.prompt)}"
-        data-mode="${preset.mode}"
-        data-workflow="${preset.workflow}"
-        data-scope="${preset.contextScope}"
-      >
-        <span class="preset-title">${escapeHtml(preset.label)}</span>
-        <span class="preset-summary">${escapeHtml(preset.summary)}</span>
-      </button>`
-    )
-    .join('')
-}
-
-function renderBlueprintOptions() {
-  return builtInLifecycleBlueprints
-    .map(
-      (blueprint) =>
-        `<option value="${escapeHtml(blueprint.blueprintId)}">${escapeHtml(blueprint.title)} - ${escapeHtml(
-          blueprint.summary
-        )}</option>`
-    )
-    .join('')
-}
-
-function renderContextCards(snapshot: PanelContextSnapshot) {
-  const cards = [
-    `Provider: ${snapshot.provider}`,
-    `Model: ${snapshot.model}`,
-    `Workspace files: ${snapshot.workspaceFileCount}`,
-    `Active file: ${snapshot.activeFile}`,
-    `Selection: ${snapshot.hasSelection ? 'ready' : 'none'}`,
-  ]
-
-  return cards.map((card) => `<div class="context-pill">${escapeHtml(card)}</div>`).join('')
 }
 
 function renderPanel(
   initialMode: AgentMode,
   initialWorkflow: AgentWorkflow,
   snapshot: PanelContextSnapshot,
-  output = 'Pick a preset, tweak the prompt, or run a blueprint. OrbitForge will keep the result inside this workspace.'
+  historyEntries: MissionHistoryEntry[],
+  output = 'Pick a preset, use a slash command, rerun history, or launch a blueprint. OrbitForge keeps the loop inside this workspace.'
 ) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -530,7 +810,6 @@ function renderPanel(
         --muted: #8ba3bd;
         --accent: #69f5e1;
         --accent-2: #7dd3fc;
-        --danger: #fca5a5;
       }
       * { box-sizing: border-box; }
       body {
@@ -543,19 +822,14 @@ function renderPanel(
         color: var(--text);
         padding: 20px;
       }
-      .shell {
-        display: grid;
-        gap: 16px;
-      }
-      .hero, .glass, pre {
+      .shell { display: grid; gap: 16px; }
+      .hero, .glass, pre, .logs {
         border: 1px solid var(--line);
         border-radius: 20px;
         background: var(--panel);
         box-shadow: 0 18px 48px rgba(2, 6, 23, 0.34);
       }
-      .hero {
-        padding: 20px;
-      }
+      .hero, .glass { padding: 18px; }
       .eyebrow {
         font-size: 11px;
         letter-spacing: 0.18em;
@@ -567,17 +841,8 @@ function renderPanel(
         font-size: 28px;
         line-height: 1.1;
       }
-      .hero p {
-        margin: 0;
-        color: var(--muted);
-        line-height: 1.6;
-      }
-      .context-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-top: 16px;
-      }
+      .hero p { margin: 0; color: var(--muted); line-height: 1.6; }
+      .context-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
       .context-pill {
         border-radius: 999px;
         border: 1px solid var(--line);
@@ -586,14 +851,7 @@ function renderPanel(
         color: #d6e4f5;
         font-size: 12px;
       }
-      .grid {
-        display: grid;
-        gap: 16px;
-        grid-template-columns: 1.35fr 0.95fr;
-      }
-      .glass {
-        padding: 18px;
-      }
+      .grid { display: grid; gap: 16px; grid-template-columns: 1.15fr 0.85fr; }
       .section-title {
         margin: 0 0 12px;
         font-size: 14px;
@@ -601,40 +859,56 @@ function renderPanel(
         text-transform: uppercase;
         color: var(--muted);
       }
-      .preset-grid {
-        display: grid;
-        gap: 10px;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      }
-      .preset-card {
-        width: 100%;
-        text-align: left;
+      .preset-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+      .preset-card, .slash-chip {
         border: 1px solid var(--line);
         border-radius: 16px;
         background: linear-gradient(180deg, rgba(14, 26, 45, 0.96), rgba(10, 18, 33, 0.9));
         color: var(--text);
-        padding: 14px;
         cursor: pointer;
       }
-      .preset-card:hover {
+      .preset-card {
+        width: 100%;
+        text-align: left;
+        padding: 14px;
+      }
+      .preset-card:hover, .slash-chip:hover, .history-action:hover {
         border-color: rgba(105, 245, 225, 0.45);
-        transform: translateY(-1px);
       }
-      .preset-title {
-        display: block;
-        font-weight: 700;
-        margin-bottom: 6px;
+      .preset-title { display: block; font-weight: 700; margin-bottom: 6px; }
+      .preset-summary { display: block; color: var(--muted); font-size: 12px; line-height: 1.5; }
+      .slash-row { display: flex; flex-wrap: wrap; gap: 8px; }
+      .slash-chip { padding: 9px 12px; font-size: 12px; }
+      .history-stack { display: grid; gap: 10px; }
+      .history-card {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 12px;
+        background: rgba(15, 23, 42, 0.7);
       }
-      .preset-summary {
-        display: block;
+      .history-title-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+      .history-title { font-weight: 700; }
+      .history-meta, .history-summary, .hint, .empty-state {
         color: var(--muted);
         font-size: 12px;
-        line-height: 1.5;
+        line-height: 1.6;
       }
-      label {
-        display: block;
-        margin-bottom: 12px;
+      .history-badge {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 11px;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
       }
+      .history-actions, .button-row {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        margin-top: 10px;
+      }
+      label { display: block; margin-bottom: 12px; }
       .label {
         display: flex;
         justify-content: space-between;
@@ -655,23 +929,8 @@ function renderPanel(
         background: var(--panel-2);
         color: var(--text);
       }
-      textarea {
-        min-height: 180px;
-        resize: vertical;
-        line-height: 1.6;
-      }
-      .button-row {
-        display: grid;
-        gap: 10px;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        margin-top: 12px;
-      }
-      button {
-        border: none;
-        padding: 12px 14px;
-        font-weight: 700;
-        cursor: pointer;
-      }
+      textarea { min-height: 180px; resize: vertical; line-height: 1.6; }
+      button { border: none; padding: 12px 14px; font-weight: 700; cursor: pointer; }
       .primary {
         background: linear-gradient(135deg, var(--accent), var(--accent-2));
         color: #04263a;
@@ -686,16 +945,23 @@ function renderPanel(
         color: var(--muted);
         border: 1px dashed var(--line);
       }
-      .hint {
-        margin-top: 10px;
-        color: var(--muted);
-        font-size: 12px;
-        line-height: 1.6;
+      .status { color: var(--accent); font-size: 12px; min-height: 18px; }
+      .logs {
+        padding: 16px;
       }
-      .status {
-        color: var(--accent);
+      .log-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+      }
+      .log-entry {
+        border-left: 2px solid rgba(125, 211, 252, 0.4);
+        padding-left: 10px;
+        color: #d6e4f5;
         font-size: 12px;
-        min-height: 18px;
+        line-height: 1.5;
       }
       pre {
         margin: 0;
@@ -703,10 +969,8 @@ function renderPanel(
         white-space: pre-wrap;
         line-height: 1.65;
       }
-      @media (max-width: 880px) {
-        .grid {
-          grid-template-columns: 1fr;
-        }
+      @media (max-width: 940px) {
+        .grid { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -714,73 +978,86 @@ function renderPanel(
     <div class="shell">
       <section class="hero">
         <div class="eyebrow">OrbitForge interactive workspace</div>
-        <h1>Guide the agents like Claude Code, steer them like n8n, keep it inside VS Code.</h1>
-        <p>Load a preset, switch workflow and execution mode, run a starter blueprint, or drop into a custom mission without leaving the editor.</p>
+        <h1>Guide the agents like Claude Code, steer lifecycles like n8n, keep everything in VS Code.</h1>
+        <p>Use presets, slash commands, blueprints, and rerunnable mission history without losing the active workspace context.</p>
         <div id="context-grid" class="context-grid">${renderContextCards(snapshot)}</div>
       </section>
 
       <div class="grid">
         <section class="glass">
           <div class="section-title">Preset launches</div>
-          <div class="preset-grid">
-            ${renderPresetCards()}
-          </div>
-          <div class="hint">Presets rewrite the prompt, workflow, and context scope so you can launch a strong run without manually tuning every field.</div>
+          <div class="preset-grid">${renderPresetCards()}</div>
+          <div class="hint">Presets rewrite the mission prompt, workflow, and context scope so you can get to a strong run in one click.</div>
+          <div class="section-title" style="margin-top: 18px;">Slash commands</div>
+          <div class="slash-row">${renderSlashHints()}</div>
+          <div class="hint">Type slash commands directly into the mission prompt to reconfigure the session, run a blueprint, inspect history, or rerun a saved mission.</div>
         </section>
 
         <section class="glass">
           <div class="section-title">Starter blueprint</div>
           <label>
             <div class="label"><span>Lifecycle blueprint</span><span>No-code mission pack</span></div>
-            <select id="blueprint">
-              ${renderBlueprintOptions()}
-            </select>
+            <select id="blueprint">${renderBlueprintOptions()}</select>
           </label>
           <div class="button-row">
             <button class="primary" id="runBlueprint">Run Blueprint</button>
             <button class="secondary" id="guided">Guided Session</button>
           </div>
-          <div class="hint">Blueprints let you start with an intake, parallel lanes, gates, validation, and publish bundle already mapped out.</div>
+          <div class="hint">Blueprints start with intake, context packing, parallel lanes, approval, validation, and publish structure already mapped out.</div>
         </section>
       </div>
 
-      <section class="glass">
-        <div class="section-title">Mission composer</div>
-        <label>
-          <div class="label"><span>Execution mode</span><span>Single or dissent-driven</span></div>
-          <select id="mode">
-            <option value="single"${initialMode === 'single' ? ' selected' : ''}>Single lane</option>
-            <option value="parallel"${initialMode === 'parallel' ? ' selected' : ''}>Parallel trio</option>
-          </select>
-        </label>
-        <label>
-          <div class="label"><span>Workflow</span><span>Changes the mission board and gate logic</span></div>
-          <select id="workflow">
-            <option value="general"${initialWorkflow === 'general' ? ' selected' : ''}>General Build</option>
-            <option value="review"${initialWorkflow === 'review' ? ' selected' : ''}>Parallel Review</option>
-            <option value="migration"${initialWorkflow === 'migration' ? ' selected' : ''}>Migration Flight Plan</option>
-            <option value="incident"${initialWorkflow === 'incident' ? ' selected' : ''}>Incident Command</option>
-            <option value="release"${initialWorkflow === 'release' ? ' selected' : ''}>Release Gate</option>
-          </select>
-        </label>
-        <label>
-          <div class="label"><span>Context scope</span><span>What the agents should ground themselves in</span></div>
-          <select id="scope">
-            <option value="workspace">Workspace</option>
-            <option value="selection">Selection</option>
-            <option value="workspace+selection">Workspace + selection</option>
-          </select>
-        </label>
-        <label>
-          <div class="label"><span>Mission prompt</span><span>Supports fully custom runs</span></div>
-          <textarea id="prompt">Inspect the current workspace, produce the next implementation plan, validation steps, and the proof needed before calling the work done.</textarea>
-        </label>
-        <div class="button-row">
-          <button class="primary" id="run">Run Mission</button>
-          <button class="secondary" id="refresh">Refresh Context</button>
-          <button class="ghost" id="selectionPreset">Use Selection Review</button>
-        </div>
-        <div id="status" class="status"></div>
+      <div class="grid">
+        <section class="glass">
+          <div class="section-title">Mission composer</div>
+          <label>
+            <div class="label"><span>Execution mode</span><span>Single or dissent-driven</span></div>
+            <select id="mode">
+              <option value="single"${initialMode === 'single' ? ' selected' : ''}>Single lane</option>
+              <option value="parallel"${initialMode === 'parallel' ? ' selected' : ''}>Parallel trio</option>
+            </select>
+          </label>
+          <label>
+            <div class="label"><span>Workflow</span><span>Changes the mission board and gate logic</span></div>
+            <select id="workflow">
+              <option value="general"${initialWorkflow === 'general' ? ' selected' : ''}>General Build</option>
+              <option value="review"${initialWorkflow === 'review' ? ' selected' : ''}>Parallel Review</option>
+              <option value="migration"${initialWorkflow === 'migration' ? ' selected' : ''}>Migration Flight Plan</option>
+              <option value="incident"${initialWorkflow === 'incident' ? ' selected' : ''}>Incident Command</option>
+              <option value="release"${initialWorkflow === 'release' ? ' selected' : ''}>Release Gate</option>
+            </select>
+          </label>
+          <label>
+            <div class="label"><span>Context scope</span><span>What the agents should ground themselves in</span></div>
+            <select id="scope">
+              <option value="workspace">Workspace</option>
+              <option value="selection">Selection</option>
+              <option value="workspace+selection">Workspace + selection</option>
+            </select>
+          </label>
+          <label>
+            <div class="label"><span>Mission prompt</span><span>Supports custom runs and slash commands</span></div>
+            <textarea id="prompt">Inspect the current workspace, produce the next implementation plan, validation steps, and the proof needed before calling the work done.</textarea>
+          </label>
+          <div class="button-row">
+            <button class="primary" id="run">Run Mission</button>
+            <button class="secondary" id="refresh">Refresh Context</button>
+            <button class="ghost" id="selectionPreset">Use Selection Review</button>
+          </div>
+          <div id="status" class="status"></div>
+        </section>
+
+        <section class="glass">
+          <div class="section-title">Mission history</div>
+          <div id="history-stack" class="history-stack">${renderHistoryCards(historyEntries)}</div>
+        </section>
+      </div>
+
+      <section class="logs">
+        <div class="section-title">Run log</div>
+        <ul id="log-list" class="log-list">
+          <li class="log-entry">Ready. Launch a mission to watch OrbitForge stage context, lanes, and history updates.</li>
+        </ul>
       </section>
 
       <pre id="output">${escapeHtml(output)}</pre>
@@ -796,9 +1073,22 @@ function renderPanel(
       const scope = document.getElementById('scope');
       const blueprint = document.getElementById('blueprint');
       const contextGrid = document.getElementById('context-grid');
+      const historyStack = document.getElementById('history-stack');
+      const logList = document.getElementById('log-list');
 
       const setStatus = (value) => {
         status.textContent = value || '';
+      };
+
+      const clearLogs = () => {
+        logList.innerHTML = '';
+      };
+
+      const addLog = (value) => {
+        const li = document.createElement('li');
+        li.className = 'log-entry';
+        li.textContent = value;
+        logList.prepend(li);
       };
 
       document.querySelectorAll('[data-preset-id]').forEach((button) => {
@@ -808,6 +1098,13 @@ function renderPanel(
           workflow.value = button.dataset.workflow || workflow.value;
           scope.value = button.dataset.scope || scope.value;
           setStatus('Preset loaded. Adjust anything you want before running.');
+        });
+      });
+
+      document.querySelectorAll('[data-slash]').forEach((button) => {
+        button.addEventListener('click', () => {
+          prompt.value = button.dataset.slash || prompt.value;
+          setStatus('Slash command loaded. Run Mission to execute it.');
         });
       });
 
@@ -824,6 +1121,7 @@ function renderPanel(
       });
 
       document.getElementById('run').addEventListener('click', () => {
+        clearLogs();
         setStatus('Running OrbitForge mission...');
         output.textContent = 'Running OrbitForge...';
         vscode.postMessage({
@@ -836,11 +1134,13 @@ function renderPanel(
       });
 
       document.getElementById('runBlueprint').addEventListener('click', () => {
+        clearLogs();
         setStatus('Launching starter blueprint...');
         output.textContent = 'Running OrbitForge blueprint...';
         vscode.postMessage({
           type: 'runBlueprint',
-          blueprintId: blueprint.value
+          blueprintId: blueprint.value,
+          prompt: prompt.value
         });
       });
 
@@ -853,6 +1153,27 @@ function renderPanel(
         vscode.postMessage({ type: 'refreshContext' });
       });
 
+      historyStack.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        const action = target.dataset.historyAction;
+        const historyId = target.dataset.historyId;
+        if (!action || !historyId) {
+          return;
+        }
+        if (action === 'rerun') {
+          clearLogs();
+          output.textContent = 'Replaying OrbitForge mission...';
+        }
+        vscode.postMessage({
+          type: 'historyAction',
+          action,
+          historyId
+        });
+      });
+
       window.addEventListener('message', (event) => {
         const message = event.data;
         if (message.type === 'result') {
@@ -861,7 +1182,22 @@ function renderPanel(
         }
         if (message.type === 'context') {
           contextGrid.innerHTML = message.html;
-          setStatus('Workspace context refreshed.');
+        }
+        if (message.type === 'history') {
+          historyStack.innerHTML = message.html;
+        }
+        if (message.type === 'controls') {
+          if (typeof message.prompt === 'string') prompt.value = message.prompt;
+          if (typeof message.mode === 'string') mode.value = message.mode;
+          if (typeof message.workflow === 'string') workflow.value = message.workflow;
+          if (typeof message.contextScope === 'string') scope.value = message.contextScope;
+          setStatus(message.status || 'Controls updated.');
+        }
+        if (message.type === 'clearLog') {
+          clearLogs();
+        }
+        if (message.type === 'log') {
+          addLog(message.entry);
         }
       });
     </script>
@@ -876,6 +1212,215 @@ export function activate(context: vscode.ExtensionContext) {
   statusBar.command = 'orbitforge.guidedSession'
   statusBar.show()
 
+  const postPanelState = async (panel: vscode.WebviewPanel) => {
+    const refreshed = await collectPanelContext()
+    panel.webview.postMessage({
+      type: 'context',
+      html: renderContextCards(refreshed),
+    })
+    panel.webview.postMessage({
+      type: 'history',
+      html: renderHistoryCards(getMissionHistory(context)),
+    })
+  }
+
+  const runMissionInPanel = async (
+    panel: vscode.WebviewPanel,
+    mission: {
+      title: string
+      prompt: string
+      mode: AgentMode
+      workflow: AgentWorkflow
+      contextScope: ContextScope
+      blueprint?: OrbitForgeLifecycleBlueprint
+      source: string
+    }
+  ) => {
+    panel.webview.postMessage({ type: 'clearLog' })
+
+    try {
+      const result = await executeMission({
+        ...mission,
+        extensionContext: context,
+        onLog: (line) => {
+          panel.webview.postMessage({
+            type: 'log',
+            entry: line,
+          })
+        },
+      })
+
+      panel.webview.postMessage({
+        type: 'result',
+        status: `Mission complete using ${result.contextLabel.toLowerCase()} context.`,
+        output: result.output,
+      })
+      await postPanelState(panel)
+    } catch (error) {
+      panel.webview.postMessage({
+        type: 'log',
+        entry: 'Run failed before completion.',
+      })
+      panel.webview.postMessage({
+        type: 'result',
+        status: 'Run failed.',
+        output: error instanceof Error ? error.message : 'OrbitForge request failed.',
+      })
+    }
+  }
+
+  const handleSlashCommand = async (panel: vscode.WebviewPanel, rawPrompt: string) => {
+    const [command, ...args] = rawPrompt.trim().split(/\s+/)
+    const value = args.join(' ').trim()
+
+    if (command === '/help') {
+      panel.webview.postMessage({
+        type: 'result',
+        status: 'Slash command reference loaded.',
+        output: [
+          'OrbitForge slash commands:',
+          '',
+          '/help',
+          '/preset workspace-plan',
+          '/preset parallel-release',
+          '/mode single|parallel',
+          '/workflow general|review|migration|incident|release',
+          '/scope workspace|selection|workspace+selection',
+          '/blueprint parallel-review-kit',
+          '/history',
+          '/rerun last',
+          '/rerun <mission-id>',
+        ].join('\n'),
+      })
+      return true
+    }
+
+    if (command === '/history') {
+      panel.webview.postMessage({
+        type: 'history',
+        html: renderHistoryCards(getMissionHistory(context)),
+      })
+      panel.webview.postMessage({
+        type: 'result',
+        status: 'Loaded recent mission history.',
+        output: formatHistoryText(getMissionHistory(context)),
+      })
+      return true
+    }
+
+    if (command === '/preset') {
+      const preset = findPreset(value)
+
+      if (!preset) {
+        panel.webview.postMessage({
+          type: 'result',
+          status: 'Preset not found.',
+          output: `Could not find an OrbitForge preset for "${value}". Try /help for valid commands.`,
+        })
+        return true
+      }
+
+      panel.webview.postMessage({
+        type: 'controls',
+        prompt: preset.prompt,
+        mode: preset.mode,
+        workflow: preset.workflow,
+        contextScope: preset.contextScope,
+        status: `${preset.label} loaded into the composer.`,
+      })
+      panel.webview.postMessage({
+        type: 'result',
+        status: `Preset ${preset.label} loaded.`,
+        output: `${preset.label}\n\n${preset.summary}\n\nRun Mission to execute it.`,
+      })
+      return true
+    }
+
+    if (command === '/mode') {
+      const mode = normalizeMode(value)
+      panel.webview.postMessage({
+        type: 'controls',
+        mode,
+        status: `Execution mode set to ${mode}.`,
+      })
+      return true
+    }
+
+    if (command === '/workflow') {
+      const workflow = normalizeWorkflow(value)
+      panel.webview.postMessage({
+        type: 'controls',
+        workflow,
+        status: `Workflow set to ${workflowLabels[workflow]}.`,
+      })
+      return true
+    }
+
+    if (command === '/scope') {
+      const contextScope = normalizeContextScope(value)
+      panel.webview.postMessage({
+        type: 'controls',
+        contextScope,
+        status: `Context scope set to ${contextScope}.`,
+      })
+      return true
+    }
+
+    if (command === '/blueprint') {
+      const blueprint = findBlueprint(value)
+
+      if (!blueprint) {
+        panel.webview.postMessage({
+          type: 'result',
+          status: 'Blueprint not found.',
+          output: `Could not find an OrbitForge blueprint for "${value}".`,
+        })
+        return true
+      }
+
+      await runMissionInPanel(panel, {
+        title: blueprint.title,
+        prompt: blueprint.goal,
+        mode: parseBlueprintMode(blueprint),
+        workflow: parseBlueprintWorkflow(blueprint),
+        contextScope: 'workspace+selection',
+        blueprint,
+        source: 'panel-slash-blueprint',
+      })
+      return true
+    }
+
+    if (command === '/rerun') {
+      const history = getMissionHistory(context)
+      const entry =
+        value === 'last' || !value
+          ? history[0]
+          : history.find((item) => item.id === value || normalizeLookup(item.title) === normalizeLookup(value))
+
+      if (!entry) {
+        panel.webview.postMessage({
+          type: 'result',
+          status: 'History entry not found.',
+          output: 'OrbitForge could not find that saved mission. Run /history to inspect what is available.',
+        })
+        return true
+      }
+
+      await runMissionInPanel(panel, {
+        title: `${entry.title} (rerun)`,
+        prompt: entry.prompt,
+        mode: entry.mode,
+        workflow: entry.workflow,
+        contextScope: entry.contextScope,
+        blueprint: entry.blueprint,
+        source: 'panel-slash-rerun',
+      })
+      return true
+    }
+
+    return false
+  }
+
   const openPanel = async () => {
     const settings = getSettings()
     const snapshot = await collectPanelContext(settings)
@@ -884,22 +1429,65 @@ export function activate(context: vscode.ExtensionContext) {
       retainContextWhenHidden: true,
     })
 
-    panel.webview.html = renderPanel(settings.agentMode, settings.workflow, snapshot)
+    panel.webview.html = renderPanel(settings.agentMode, settings.workflow, snapshot, getMissionHistory(context))
 
     panel.webview.onDidReceiveMessage(
       async (message) => {
         if (message.type === 'guidedSession') {
-          await launchGuidedSession(openPanel)
+          await launchGuidedSession(openPanel, context)
           return
         }
 
         if (message.type === 'refreshContext') {
-          const refreshed = await collectPanelContext()
+          await postPanelState(panel)
           panel.webview.postMessage({
-            type: 'context',
-            html: renderContextCards(refreshed),
+            type: 'log',
+            entry: 'Workspace context refreshed.',
           })
           return
+        }
+
+        if (message.type === 'historyAction') {
+          const entry = getMissionHistory(context).find((item) => item.id === message.historyId)
+
+          if (!entry) {
+            panel.webview.postMessage({
+              type: 'result',
+              status: 'History entry missing.',
+              output: 'That OrbitForge mission is no longer available in this workspace.',
+            })
+            return
+          }
+
+          if (message.action === 'restore') {
+            panel.webview.postMessage({
+              type: 'controls',
+              prompt: entry.prompt,
+              mode: entry.mode,
+              workflow: entry.workflow,
+              contextScope: entry.contextScope,
+              status: `${entry.title} restored into the composer.`,
+            })
+            panel.webview.postMessage({
+              type: 'result',
+              status: 'Mission restored.',
+              output: `${entry.title}\n\n${entry.summary}\n\nRun Mission to execute the restored configuration.`,
+            })
+            return
+          }
+
+          if (message.action === 'rerun') {
+            await runMissionInPanel(panel, {
+              title: `${entry.title} (rerun)`,
+              prompt: entry.prompt,
+              mode: entry.mode,
+              workflow: entry.workflow,
+              contextScope: entry.contextScope,
+              blueprint: entry.blueprint,
+              source: 'panel-history-rerun',
+            })
+            return
+          }
         }
 
         if (message.type === 'runBlueprint') {
@@ -914,26 +1502,15 @@ export function activate(context: vscode.ExtensionContext) {
             return
           }
 
-          try {
-            const output = await requestTalent(
-              blueprint.goal,
-              (await buildContext('workspace+selection')).contextText,
-              parseBlueprintMode(blueprint),
-              parseBlueprintWorkflow(blueprint),
-              blueprint
-            )
-            panel.webview.postMessage({
-              type: 'result',
-              status: `${blueprint.title} completed.`,
-              output,
-            })
-          } catch (error) {
-            panel.webview.postMessage({
-              type: 'result',
-              status: 'Blueprint run failed.',
-              output: error instanceof Error ? error.message : 'OrbitForge blueprint run failed.',
-            })
-          }
+          await runMissionInPanel(panel, {
+            title: blueprint.title,
+            prompt: typeof message.prompt === 'string' && message.prompt.trim() ? message.prompt.trim() : blueprint.goal,
+            mode: parseBlueprintMode(blueprint),
+            workflow: parseBlueprintWorkflow(blueprint),
+            contextScope: 'workspace+selection',
+            blueprint,
+            source: 'panel-blueprint',
+          })
           return
         }
 
@@ -941,27 +1518,22 @@ export function activate(context: vscode.ExtensionContext) {
           return
         }
 
-        try {
-          const scope = normalizeContextScope(message.contextScope)
-          const { contextText, contextLabel } = await buildContext(scope)
-          const output = await requestTalent(
-            message.prompt,
-            contextText,
-            normalizeMode(message.mode),
-            normalizeWorkflow(message.workflow)
-          )
-          panel.webview.postMessage({
-            type: 'result',
-            status: `Mission complete using ${contextLabel.toLowerCase()} context.`,
-            output,
-          })
-        } catch (error) {
-          panel.webview.postMessage({
-            type: 'result',
-            status: 'Run failed.',
-            output: error instanceof Error ? error.message : 'OrbitForge request failed.',
-          })
+        if (typeof message.prompt === 'string' && message.prompt.trim().startsWith('/')) {
+          const handled = await handleSlashCommand(panel, message.prompt)
+
+          if (handled) {
+            return
+          }
         }
+
+        await runMissionInPanel(panel, {
+          title: 'Panel Mission',
+          prompt: message.prompt,
+          mode: normalizeMode(message.mode),
+          workflow: normalizeWorkflow(message.workflow),
+          contextScope: normalizeContextScope(message.contextScope),
+          source: 'panel-mission',
+        })
       },
       undefined,
       context.subscriptions
@@ -969,11 +1541,15 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   const guidedSessionCommand = vscode.commands.registerCommand('orbitforge.guidedSession', async () => {
-    await launchGuidedSession(openPanel)
+    await launchGuidedSession(openPanel, context)
   })
 
   const openPanelCommand = vscode.commands.registerCommand('orbitforge.openPanel', async () => {
     await openPanel()
+  })
+
+  const openMissionHistoryCommand = vscode.commands.registerCommand('orbitforge.openMissionHistory', async () => {
+    await openMissionHistoryPicker(context)
   })
 
   const explainSelectionCommand = vscode.commands.registerCommand('orbitforge.explainSelection', async () => {
@@ -991,6 +1567,8 @@ export function activate(context: vscode.ExtensionContext) {
         mode: 'single',
         workflow: 'review',
         contextScope: 'selection',
+        extensionContext: context,
+        source: 'selection-review',
       })
     } catch (error) {
       vscode.window.showErrorMessage(error instanceof Error ? error.message : 'OrbitForge request failed.')
@@ -1006,6 +1584,8 @@ export function activate(context: vscode.ExtensionContext) {
         mode: settings.agentMode,
         workflow: settings.workflow,
         contextScope: 'workspace',
+        extensionContext: context,
+        source: 'workspace-plan',
       })
     } catch (error) {
       vscode.window.showErrorMessage(error instanceof Error ? error.message : 'OrbitForge request failed.')
@@ -1020,6 +1600,8 @@ export function activate(context: vscode.ExtensionContext) {
         mode: 'parallel',
         workflow: 'release',
         contextScope: 'workspace',
+        extensionContext: context,
+        source: 'parallel-workspace-plan',
       })
     } catch (error) {
       vscode.window.showErrorMessage(error instanceof Error ? error.message : 'OrbitForge parallel run failed.')
@@ -1028,7 +1610,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const runStarterBlueprintCommand = vscode.commands.registerCommand('orbitforge.runStarterBlueprint', async () => {
     try {
-      await launchStarterBlueprintPicker()
+      await launchStarterBlueprintPicker(context)
     } catch (error) {
       vscode.window.showErrorMessage(error instanceof Error ? error.message : 'OrbitForge blueprint run failed.')
     }
@@ -1050,7 +1632,17 @@ export function activate(context: vscode.ExtensionContext) {
     try {
       const raw = await vscode.workspace.fs.readFile(file[0])
       const blueprint = JSON.parse(Buffer.from(raw).toString('utf8')) as OrbitForgeLifecycleBlueprint
-      await runBlueprintCommand(blueprint, undefined, vscode.ViewColumn.Beside)
+      await runInteractiveMission({
+        title: blueprint.title,
+        prompt: blueprint.goal,
+        mode: parseBlueprintMode(blueprint),
+        workflow: parseBlueprintWorkflow(blueprint),
+        contextScope: 'workspace+selection',
+        blueprint,
+        extensionContext: context,
+        source: 'blueprint-file',
+        viewColumn: vscode.ViewColumn.Beside,
+      })
     } catch (error) {
       vscode.window.showErrorMessage(error instanceof Error ? error.message : 'Could not open the OrbitForge blueprint file.')
     }
@@ -1060,6 +1652,7 @@ export function activate(context: vscode.ExtensionContext) {
     statusBar,
     guidedSessionCommand,
     openPanelCommand,
+    openMissionHistoryCommand,
     explainSelectionCommand,
     generateFromWorkspaceCommand,
     parallelWorkspacePlanCommand,

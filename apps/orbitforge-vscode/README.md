@@ -7,6 +7,9 @@ OrbitForge brings the lifecycle-first OrbitForge experience into VS Code.
 Instead of stopping at chat and code generation, OrbitForge helps you run work with:
 
 - a guided session flow that feels closer to Claude Code and Codex than a static command list
+- mission history that keeps good runs close enough to restore or rerun in one click
+- slash commands that reconfigure the session without leaving the panel
+- live run logs so you can see context packing, lane setup, and completion stages
 - provider parity across local and hosted models
 - parallel architect / implementer / critic lanes
 - workflow-aware mission boards
@@ -28,8 +31,10 @@ OrbitForge is built for the harder problems:
 
 - `OrbitForge: Guided Session`
   Opens a low-friction launcher that lets you choose a preset, custom mission, or starter blueprint in a few clicks.
+- `OrbitForge: Mission History`
+  Opens saved workspace missions so you can rerun or continue strong prior runs.
 - `OrbitForge: Open Panel`
-  Opens the interactive OrbitForge panel with presets, blueprint launching, context-scope controls, and live workspace context.
+  Opens the interactive OrbitForge panel with presets, slash commands, live run logs, mission history, blueprint launching, and context-scope controls.
 - `OrbitForge: Explain Selection`
   Reviews the current selection and suggests the safest next edit.
 - `OrbitForge: Plan From Workspace`
@@ -75,7 +80,7 @@ Once published, install `OrbitForge` from the VS Code Marketplace or Open VSX.
 ### From VSIX
 
 ```bash
-code --install-extension orbitforge-vscode-0.3.0.vsix
+code --install-extension orbitforge-vscode-0.4.0.vsix
 ```
 
 ## Configure
@@ -90,6 +95,24 @@ Important settings:
 - `orbitforge.apiKey`
 - `orbitforge.agentMode`
 - `orbitforge.workflow`
+
+## Interactive Flow
+
+The fastest way to use OrbitForge now is:
+
+1. Run `OrbitForge: Guided Session`
+2. Pick a preset, history entry, blueprint, or custom mission
+3. Use `OrbitForge: Open Panel` when you want the always-on workspace
+
+Inside the panel, you can type slash commands like:
+
+- `/help`
+- `/preset parallel-release`
+- `/workflow review`
+- `/scope selection`
+- `/blueprint parallel-review-kit`
+- `/history`
+- `/rerun last`
 
 ## Development
 

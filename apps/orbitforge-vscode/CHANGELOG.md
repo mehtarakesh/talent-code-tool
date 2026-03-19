@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- added mission history with restore and rerun support inside VS Code
+- added slash commands in the interactive panel for presets, workflows, scope changes, blueprint runs, and history recall
+- added live run logs in the panel so OrbitForge shows how it is staging context and dispatching lanes
+- added `OrbitForge: Mission History` for command-palette access to saved workspace missions
+
 ## 0.3.0
 
 - added `OrbitForge: Guided Session` for a Claude Code / Codex-style launch flow inside VS Code
