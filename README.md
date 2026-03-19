@@ -1,16 +1,23 @@
 # OrbitForge
 
-OrbitForge is the public product repo for the cross-platform AI coding surfaces behind `orbitforge.dev`.
+OrbitForge is a lifecycle-first AI coding platform for teams that need more than prompt output. It focuses on the local and installable surfaces behind `orbitforge.dev`: VS Code, desktop, CLI, and the shared runtime that keeps them aligned.
 
 ![OrbitForge](./assets/branding/orbitforge-social.png)
 
-This repository focuses on the surfaces developers actually run on their machines:
+What OrbitForge is built to do:
+
+- keep local and hosted model workflows aligned across surfaces
+- turn risky work into mission boards, approval gates, and validation plans
+- let teams reuse portable lifecycle blueprints instead of rebuilding process by hand
+- make release-readiness and proof part of the product, not post-run cleanup
+
+This repository focuses on the installable surfaces developers actually run on their machines:
 
 - VS Code extension
 - Desktop app
 - CLI
 
-The hosted web app and marketing site are intentionally private for now. This public repo is where the local product experience, provider interoperability, and contributor workflows are developed in the open.
+The hosted web app and marketing site remain private for now. This public repo is where the shared runtime, provider interoperability, extension experience, desktop workflows, CLI flows, and contributor-facing ecosystem contract are developed in the open.
 
 ## Why OrbitForge Exists
 
@@ -207,6 +214,7 @@ Marketplace and release docs:
 
 - `docs/vscode-marketplace-release.md`
 - `docs/market-edge.md`
+- `docs/github-about.md`
 
 Private for now:
 
