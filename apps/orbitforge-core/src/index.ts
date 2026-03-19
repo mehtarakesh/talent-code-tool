@@ -1,3 +1,5 @@
+import { compileLifecycleBlueprint, type OrbitForgeLifecycleBlueprint } from './ecosystem'
+
 export type ProviderId = 'ollama' | 'lmstudio' | 'openai' | 'anthropic' | 'openrouter' | 'openai-compatible'
 
 export type AgentMode = 'single' | 'parallel'
@@ -16,6 +18,7 @@ export type OrbitForgeRequest = {
   mode?: AgentMode
   workflow?: AgentWorkflow
   agents?: AgentRoleId[]
+  blueprint?: OrbitForgeLifecycleBlueprint
 }
 
 export type ProviderInvocation = {
@@ -491,6 +494,8 @@ function buildMissionBoard(request: OrbitForgeRequest, selectedAgents: AgentRole
   const laneAssignments = selectedAgents
     .map((agentId) => `- ${agentDefinitions[agentId].title}: ${getAgentFocus(agentId, request.workflow)}`)
     .join('\n')
+  const compiledBlueprint = request.blueprint ? compileLifecycleBlueprint(request.blueprint) : null
+  const blueprintSection = compiledBlueprint ? `\n\n${compiledBlueprint.markdown}` : ''
 
   return `## Mission Board
 Workflow: ${workflowDefinition.label}
@@ -510,7 +515,7 @@ Handoff plan:
 ${handoffs}
 
 Next prompts:
-${followUpPrompts}`.trim()
+${followUpPrompts}${blueprintSection}`.trim()
 }
 
 function formatSingleOutput(request: OrbitForgeRequest, output: string, missionBoard: string) {
@@ -688,3 +693,5 @@ export function parseWorkflow(input?: string): AgentWorkflow | undefined {
   const normalized = input.trim().toLowerCase() as AgentWorkflow
   return workflowDefinitions[normalized] ? normalized : undefined
 }
+
+export * from './ecosystem'

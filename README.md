@@ -124,6 +124,44 @@ This repo now ships with Claude Code-ready project memory, rules, skills, and au
 Why that matters:
 Claude Code can contribute to the repo in a targeted way, and human contributors get a clearer map of what actually moves the product forward.
 
+## Open Lifecycle Ecosystem
+
+OrbitForge is now opening a larger surface than “pick a model and press run.”
+
+The hidden pain in agent tooling is that the hardest engineering work still lives outside the agent step:
+
+- mission intake
+- context packing
+- parallel disagreement
+- human approval
+- validation proof
+- release control
+- publish handoff
+
+OrbitForge now exposes that lifecycle as an open contract through:
+
+- `apps/orbitforge-core/src/ecosystem.ts`
+- CLI blueprint support with `--list-components`, `--list-blueprints`, and `--blueprint-file`
+- starter lifecycle kits for high-trust review and migration workflows
+- a private hosted builder that can author compatible JSON blueprints visually
+
+Why this is bigger than workflow-only agent nodes:
+
+The official n8n docs describe an AI agent as a decision-maker inside a workflow. That is useful, but it still centers the agent as one step in a graph. OrbitForge is targeting the wider lifecycle around risky engineering work:
+
+- who owns the mission
+- what context is admissible
+- which lanes must disagree
+- where a human must approve
+- what proof counts
+- how release and publish obligations are handled
+
+That is the problem OrbitForge is trying to solve better.
+
+Read the open contract here:
+
+- `PLUGIN_ECOSYSTEM.md`
+
 ## Agentic Workflows OrbitForge Now Targets
 
 OrbitForge is no longer just “single prompt” tooling. The public repo now includes workflow-aware mission planning for the most common agentic use cases discussed in the wild:
@@ -180,6 +218,14 @@ npm run build:desktop
 npm run build:cli
 ```
 
+### Ecosystem CLI
+
+```bash
+node apps/orbitforge-cli/dist/cli.js --list-components
+node apps/orbitforge-cli/dist/cli.js --list-blueprints
+node apps/orbitforge-cli/dist/cli.js --parallel --workflow review --blueprint-file ./parallel-review-kit.json
+```
+
 ## Packaging Commands
 
 ```bash
@@ -201,6 +247,7 @@ It includes:
 - `.claude/rules/` for scope-specific repo guidance
 - `.claude/skills/` for niche OrbitForge contribution workflows
 - `.github/workflows/claude.yml` so `@claude` can help on issues and PR comments once the repo secret is configured
+- `PLUGIN_ECOSYSTEM.md` for the lifecycle/plugin contract
 
 ### How to use Claude Code in this repo
 
@@ -217,6 +264,8 @@ Recommended Claude Code contribution lanes:
 - add streaming support consistently across CLI, desktop, and VS Code
 - add secure credential storage instead of plain config entry where the platform supports it
 - strengthen packaging validation for Windows and Linux release paths
+- extend the lifecycle ecosystem without turning OrbitForge into generic node sprawl
+- add blueprint starter kits that solve real engineering stewardship problems
 
 ## Claude Code Niche Skills In This Repo
 
@@ -254,6 +303,17 @@ Use this when touching:
 - failure handling for one broken lane
 
 It is meant to make the multi-agent framework stronger without making it harder to use.
+
+### `/ecosystem-plugin-author`
+
+Use this when touching:
+
+- lifecycle components
+- blueprint starter kits
+- the open JSON blueprint contract
+- docs about the ecosystem
+
+It is meant to keep OrbitForge focused on lifecycle stewardship rather than generic node proliferation.
 
 ## GitHub Automation For Claude Code
 

@@ -160,6 +160,24 @@ When choosing defaults, do not optimize only for hosted SaaS providers. Local Ol
 
 If a capability is private, partial, or not implemented in this public repo, say so plainly in the README or comments rather than implying it already exists.
 
+### 7. Preserve the ecosystem contract
+
+OrbitForge now exposes an open lifecycle ecosystem through `apps/orbitforge-core/src/ecosystem.ts`.
+
+Treat that as a public contract.
+
+New ecosystem work should strengthen:
+
+- mission intake
+- context packing
+- parallel disagreement
+- approval
+- validation
+- release
+- publish
+
+Avoid generic node sprawl that weakens the lifecycle thesis.
+
 ## Definition Of Done
 
 A good OrbitForge change usually means:
@@ -181,6 +199,8 @@ Claude Code should prioritize these over generic cleanup:
 - packaging verification improvements for Windows and Linux
 - secure credential handling improvements
 - workspace-context fidelity improvements across surfaces
+- ecosystem blueprint portability and validation
+- lifecycle starter kits for review, migration, incident, and release work
 
 ## OrbitForge Project Skills
 
@@ -189,5 +209,6 @@ Available project skills:
 - `/provider-parity-audit`
 - `/surface-shipping-check`
 - `/parallel-agent-upgrade`
+- `/ecosystem-plugin-author`
 
 Use them when the task matches. They are meant to keep contributions focused on product risk instead of random refactors.
