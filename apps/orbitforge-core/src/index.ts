@@ -1,6 +1,7 @@
 export type ProviderId = 'ollama' | 'lmstudio' | 'openai' | 'anthropic' | 'openrouter' | 'openai-compatible'
 
 export type AgentMode = 'single' | 'parallel'
+export type AgentWorkflow = 'general' | 'review' | 'migration' | 'incident' | 'release'
 
 export type AgentRoleId = 'architect' | 'implementer' | 'critic'
 
@@ -13,6 +14,7 @@ export type OrbitForgeRequest = {
   workspaceContext?: string
   temperature?: number
   mode?: AgentMode
+  workflow?: AgentWorkflow
   agents?: AgentRoleId[]
 }
 
@@ -37,10 +39,12 @@ export type OrbitForgeAgentResult = {
 
 export type OrbitForgeRunResult = {
   mode: AgentMode
+  workflow: AgentWorkflow
   provider: ProviderId
   model: string
   summary: string
   output: string
+  missionBoard: string
   agents: OrbitForgeAgentResult[]
 }
 
@@ -53,6 +57,18 @@ type AgentDefinition = {
   title: string
   focus: string
   systemPrompt: string
+}
+
+type WorkflowDefinition = {
+  id: AgentWorkflow
+  label: string
+  headlinePain: string
+  publicSignal: string
+  useCases: string[]
+  approvalGates: string[]
+  handoffs: string[]
+  synthesisDirective: string
+  agentFocus: Record<AgentRoleId, string>
 }
 
 export const defaultSystemPrompt = `You are OrbitForge, a release-ready software engineer.
@@ -70,6 +86,7 @@ Always return:
 3. Risks and disagreements that still need a human decision.`
 
 export const defaultParallelAgents: AgentRoleId[] = ['architect', 'implementer', 'critic']
+export const defaultWorkflow: AgentWorkflow = 'general'
 
 export const providerDefaults: Record<ProviderId, { baseUrl: string; model: string }> = {
   ollama: { baseUrl: 'http://localhost:11434', model: 'deepseek-coder:33b' },
@@ -123,12 +140,178 @@ Return:
   },
 }
 
+const workflowDefinitions: Record<AgentWorkflow, WorkflowDefinition> = {
+  general: {
+    id: 'general',
+    label: 'General Build',
+    headlinePain:
+      'Complex implementation work often gets forced through one overconfident answer path with weak task ownership.',
+    publicSignal:
+      'Agent-team docs and community discussion keep stressing parallel work, plan approval, and task coordination for non-trivial engineering work.',
+    useCases: [
+      'cross-surface feature work',
+      'provider integrations',
+      'shared-runtime refactors',
+      'multi-step implementation planning',
+    ],
+    approvalGates: [
+      'Confirm the main affected surfaces before editing.',
+      'Confirm the validation commands before calling the work ready.',
+      'Escalate any unresolved disagreement between lanes to a human decision.',
+    ],
+    handoffs: [
+      'Architect -> Implementer: translate surface map into the safest execution order.',
+      'Implementer -> Critic: pass concrete patch steps and validation commands for challenge.',
+      'Critic -> Human: surface unresolved risks or proof gaps before shipping.',
+    ],
+    synthesisDirective:
+      'Converge the lanes into one build plan with the safest implementation order, validation, and explicit remaining risks.',
+    agentFocus: {
+      architect: 'Prioritize decomposition, sequencing, and cross-surface coupling.',
+      implementer: 'Prioritize concrete patch mechanics, affected files, and validation commands.',
+      critic: 'Prioritize hidden regressions, missing proof, and overconfident assumptions.',
+    },
+  },
+  review: {
+    id: 'review',
+    label: 'Parallel Review',
+    headlinePain:
+      'Teams increasingly use coding agents, but still struggle to trust one-shot reviews that do not map findings, evidence, and severity clearly.',
+    publicSignal:
+      'Public agent-team docs explicitly call out parallel code review as a prime use case, and community posts keep highlighting trust and review quality as the bottleneck.',
+    useCases: [
+      'PR review',
+      'pre-merge regression checks',
+      'security-sensitive change review',
+      'missing-test detection',
+    ],
+    approvalGates: [
+      'List findings with evidence before proposing fixes.',
+      'Separate probable regressions from speculation.',
+      'Require an explicit proof gap section before approval.',
+    ],
+    handoffs: [
+      'Architect -> Implementer: map changed surfaces and behavioral blast radius.',
+      'Implementer -> Critic: hand off candidate fixes and the tests they rely on.',
+      'Critic -> Human: promote only evidence-backed findings to merge blockers.',
+    ],
+    synthesisDirective:
+      'Produce a review brief with the most credible findings first, then validation steps, then unresolved open questions.',
+    agentFocus: {
+      architect: 'Map the changed surfaces, dependencies, and behavioral blast radius.',
+      implementer: 'Propose the most likely fixes, validation steps, and missing tests.',
+      critic: 'Pressure-test every finding for evidence, severity, and false positives.',
+    },
+  },
+  migration: {
+    id: 'migration',
+    label: 'Migration Flight Plan',
+    headlinePain:
+      'Long migrations fail when ownership, rollout order, and rollback points are not explicit, especially once context drifts over multiple sessions.',
+    publicSignal:
+      'Official multi-agent docs emphasize coordination and task assignment, while user discussion keeps pointing to context drift on longer-running engineering efforts.',
+    useCases: [
+      'framework migration',
+      'provider migration',
+      'runtime extraction',
+      'large refactor with phased rollout',
+    ],
+    approvalGates: [
+      'Define migration phases before touching implementation details.',
+      'Call out rollback or compatibility strategy for each phase.',
+      'Confirm the migration exit criteria and smoke tests.',
+    ],
+    handoffs: [
+      'Architect -> Implementer: turn the phase map into atomic change sets.',
+      'Implementer -> Critic: provide rollback paths and compatibility assumptions.',
+      'Critic -> Human: flag phases that still have no safe rollback or proof.',
+    ],
+    synthesisDirective:
+      'Deliver a phased migration plan with rollout order, rollback notes, validation gates, and a final cutover recommendation.',
+    agentFocus: {
+      architect: 'Prioritize phase boundaries, blast radius, and sequencing.',
+      implementer: 'Prioritize concrete migration steps, compatibility shims, and command-level validation.',
+      critic: 'Prioritize rollback gaps, cutover risk, and unproven compatibility claims.',
+    },
+  },
+  incident: {
+    id: 'incident',
+    label: 'Incident Command',
+    headlinePain:
+      'Agentic tooling often jumps to a fix before the team has separated containment, root-cause hypotheses, and rollback options.',
+    publicSignal:
+      'Multi-agent docs highlight competing hypotheses as a key use case, which mirrors how teams debug high-pressure incidents in practice.',
+    useCases: [
+      'production regression triage',
+      'provider outage diagnosis',
+      'failed rollout investigation',
+      'performance incident response',
+    ],
+    approvalGates: [
+      'Identify containment steps before permanent fixes.',
+      'Keep hypotheses separate from confirmed facts.',
+      'Require a human checkpoint before any risky remediation path.',
+    ],
+    handoffs: [
+      'Architect -> Implementer: define containment order and likely affected systems.',
+      'Implementer -> Critic: hand over proposed remediation and rollback commands.',
+      'Critic -> Human: separate proven signals from attractive but unsupported hypotheses.',
+    ],
+    synthesisDirective:
+      'Return an incident command brief with containment, competing hypotheses, validation checks, and go/no-go advice for remediation.',
+    agentFocus: {
+      architect: 'Prioritize containment order, impacted systems, and diagnostic branching.',
+      implementer: 'Prioritize executable remediation steps, rollback commands, and observability checks.',
+      critic: 'Prioritize hypothesis quality, evidence gaps, and risky remediation paths.',
+    },
+  },
+  release: {
+    id: 'release',
+    label: 'Release Gate',
+    headlinePain:
+      'AI-generated release plans often skip explicit approval gates, leading teams to confuse polished wording with actual ship readiness.',
+    publicSignal:
+      'Agent-team and workflow docs keep emphasizing plan approval and quality gates, which matches repeated complaints about agents saying “done” too early.',
+    useCases: [
+      'pre-release hardening',
+      'cross-platform packaging review',
+      'go/no-go decisions',
+      'final validation checklist generation',
+    ],
+    approvalGates: [
+      'State the ship criteria before declaring readiness.',
+      'List the must-run validations, not just recommended ones.',
+      'Surface rollback conditions and hold criteria explicitly.',
+    ],
+    handoffs: [
+      'Architect -> Implementer: convert release scope into a concrete validation map.',
+      'Implementer -> Critic: hand over the release checklist and evidence expectations.',
+      'Critic -> Human: make the go/no-go blockers impossible to miss.',
+    ],
+    synthesisDirective:
+      'Return a release decision brief with must-pass validations, hold criteria, and the final go/no-go recommendation.',
+    agentFocus: {
+      architect: 'Prioritize release scope, platform coverage, and validation order.',
+      implementer: 'Prioritize concrete validation commands, packaging checks, and rollout mechanics.',
+      critic: 'Prioritize missing proof, hold criteria, and rollback readiness.',
+    },
+  },
+}
+
 function getWorkspaceContextBlock(workspaceContext?: string) {
   return workspaceContext?.trim() ? workspaceContext.trim() : 'Not provided.'
 }
 
-function buildUserPrompt(task: string, workspaceContext?: string, focus?: string) {
-  return `Workspace context:\n${getWorkspaceContextBlock(workspaceContext)}\n\nTask:\n${task.trim()}${
+function getWorkflowDefinition(workflow?: AgentWorkflow) {
+  return workflowDefinitions[workflow || defaultWorkflow]
+}
+
+function buildUserPrompt(task: string, workspaceContext?: string, focus?: string, workflow?: AgentWorkflow) {
+  const workflowDefinition = getWorkflowDefinition(workflow)
+
+  return `Workflow:\n${workflowDefinition.label}\n\nPrimary pain point:\n${workflowDefinition.headlinePain}\n\nPublic signal:\n${workflowDefinition.publicSignal}\n\nBest-fit use cases:\n- ${workflowDefinition.useCases.join(
+    '\n- '
+  )}\n\nWorkspace context:\n${getWorkspaceContextBlock(workspaceContext)}\n\nTask:\n${task.trim()}${
     focus ? `\n\nRole focus:\n${focus}` : ''
   }`
 }
@@ -262,7 +445,18 @@ function getInvoker(options?: OrbitForgeRunOptions) {
   return options?.invoker || invokeProvider
 }
 
+function getAgentFocus(agentId: AgentRoleId, workflow?: AgentWorkflow) {
+  const workflowDefinition = getWorkflowDefinition(workflow)
+  return `${agentDefinitions[agentId].focus} ${workflowDefinition.agentFocus[agentId]}`.trim()
+}
+
+function getAgentSystemPrompt(agentId: AgentRoleId, workflow?: AgentWorkflow) {
+  const workflowDefinition = getWorkflowDefinition(workflow)
+  return `${agentDefinitions[agentId].systemPrompt}\n\nWorkflow emphasis: ${workflowDefinition.agentFocus[agentId]}`
+}
+
 function buildSynthesisPrompt(request: OrbitForgeRequest, agentResults: OrbitForgeAgentResult[]) {
+  const workflowDefinition = getWorkflowDefinition(request.workflow)
   const lanes = agentResults
     .filter((entry) => entry.status === 'success')
     .map(
@@ -271,17 +465,74 @@ function buildSynthesisPrompt(request: OrbitForgeRequest, agentResults: OrbitFor
     )
     .join('\n\n')
 
-  return `Task:\n${request.prompt.trim()}\n\nWorkspace context:\n${getWorkspaceContextBlock(
+  return `Workflow:\n${workflowDefinition.label}\n\nPrimary pain point:\n${workflowDefinition.headlinePain}\n\nSynthesis directive:\n${workflowDefinition.synthesisDirective}\n\nTask:\n${request.prompt.trim()}\n\nWorkspace context:\n${getWorkspaceContextBlock(
     request.workspaceContext
   )}\n\nAgent lanes:\n${lanes}`
+}
+
+function buildMissionBoard(request: OrbitForgeRequest, selectedAgents: AgentRoleId[]) {
+  const workflowDefinition = getWorkflowDefinition(request.workflow)
+  const approvalGates = workflowDefinition.approvalGates
+    .map((entry, index) => `${index + 1}. ${entry}`)
+    .join('\n')
+  const handoffs = workflowDefinition.handoffs
+    .map((entry, index) => `${index + 1}. ${entry}`)
+    .join('\n')
+  const followUpPrompts = selectedAgents
+    .map((agentId) => {
+      const title = agentDefinitions[agentId].title
+      const followUp = `As ${title}, continue the ${workflowDefinition.label.toLowerCase()} for: ${
+        request.prompt
+      }. Focus on ${getAgentFocus(agentId, request.workflow).toLowerCase()}`
+      return `- ${title}: ${followUp}`
+    })
+    .join('\n')
+
+  const laneAssignments = selectedAgents
+    .map((agentId) => `- ${agentDefinitions[agentId].title}: ${getAgentFocus(agentId, request.workflow)}`)
+    .join('\n')
+
+  return `## Mission Board
+Workflow: ${workflowDefinition.label}
+Objective: ${request.prompt.trim()}
+Primary pain point: ${workflowDefinition.headlinePain}
+
+Best-fit use cases:
+- ${workflowDefinition.useCases.join('\n- ')}
+
+Lane assignments:
+${laneAssignments}
+
+Approval gates:
+${approvalGates}
+
+Handoff plan:
+${handoffs}
+
+Next prompts:
+${followUpPrompts}`.trim()
+}
+
+function formatSingleOutput(request: OrbitForgeRequest, output: string, missionBoard: string) {
+  return `# OrbitForge Single Agent Run
+Mode: single
+Workflow: ${getWorkflowDefinition(request.workflow).label}
+Provider: ${request.provider}
+Model: ${request.model}
+
+${missionBoard}
+
+## Single-Agent Recommendation
+${output.trim()}`.trim()
 }
 
 function formatParallelOutput(
   request: OrbitForgeRequest,
   agentResults: OrbitForgeAgentResult[],
+  missionBoard: string,
   synthesisOutput?: string
 ) {
-  const metadata = `Mode: parallel\nProvider: ${request.provider}\nModel: ${request.model}\nAgents: ${agentResults
+  const metadata = `Mode: parallel\nWorkflow: ${getWorkflowDefinition(request.workflow).label}\nProvider: ${request.provider}\nModel: ${request.model}\nAgents: ${agentResults
     .map((entry) => entry.title)
     .join(', ')}`
 
@@ -297,12 +548,12 @@ function formatParallelOutput(
     ? `## Converged Recommendation\n${synthesisOutput.trim()}\n\n`
     : ''
 
-  return `# OrbitForge Parallel Agent Run\n${metadata}\n\n${convergence}${sections}`.trim()
+  return `# OrbitForge Parallel Agent Run\n${metadata}\n\n${missionBoard}\n\n${convergence}${sections}`.trim()
 }
 
 function buildSummary(mode: AgentMode, agentResults: OrbitForgeAgentResult[], synthesisOutput?: string) {
   if (mode === 'single') {
-    return 'Single agent run completed.'
+    return 'Single agent run completed with a mission board.'
   }
 
   const successCount = agentResults.filter((entry) => entry.status === 'success').length
@@ -312,6 +563,7 @@ function buildSummary(mode: AgentMode, agentResults: OrbitForgeAgentResult[], sy
 }
 
 async function runSingleAgent(request: OrbitForgeRequest, options?: OrbitForgeRunOptions): Promise<OrbitForgeRunResult> {
+  const missionBoard = buildMissionBoard(request, defaultParallelAgents)
   const output = await getInvoker(options)({
     provider: request.provider,
     model: request.model,
@@ -319,15 +571,17 @@ async function runSingleAgent(request: OrbitForgeRequest, options?: OrbitForgeRu
     apiKey: request.apiKey,
     temperature: request.temperature,
     systemPrompt: defaultSystemPrompt,
-    userPrompt: buildUserPrompt(request.prompt, request.workspaceContext),
+    userPrompt: buildUserPrompt(request.prompt, request.workspaceContext, undefined, request.workflow),
   })
 
   return {
     mode: 'single',
+    workflow: request.workflow || defaultWorkflow,
     provider: request.provider,
     model: request.model,
     summary: buildSummary('single', []),
-    output,
+    output: formatSingleOutput(request, output, missionBoard),
+    missionBoard,
     agents: [],
   }
 }
@@ -335,6 +589,7 @@ async function runSingleAgent(request: OrbitForgeRequest, options?: OrbitForgeRu
 async function runParallelAgents(request: OrbitForgeRequest, options?: OrbitForgeRunOptions): Promise<OrbitForgeRunResult> {
   const invoker = getInvoker(options)
   const selectedAgents = sanitizeAgents(request.agents)
+  const missionBoard = buildMissionBoard(request, selectedAgents)
 
   const agentResults = await Promise.all(
     selectedAgents.map(async (agentId) => {
@@ -348,8 +603,8 @@ async function runParallelAgents(request: OrbitForgeRequest, options?: OrbitForg
           baseUrl: request.baseUrl,
           apiKey: request.apiKey,
           temperature: request.temperature,
-          systemPrompt: agent.systemPrompt,
-          userPrompt: buildUserPrompt(request.prompt, request.workspaceContext, agent.focus),
+          systemPrompt: getAgentSystemPrompt(agentId, request.workflow),
+          userPrompt: buildUserPrompt(request.prompt, request.workspaceContext, getAgentFocus(agentId, request.workflow), request.workflow),
         })
 
         return {
@@ -394,10 +649,12 @@ async function runParallelAgents(request: OrbitForgeRequest, options?: OrbitForg
 
   return {
     mode: 'parallel',
+    workflow: request.workflow || defaultWorkflow,
     provider: request.provider,
     model: request.model,
     summary: buildSummary('parallel', agentResults, synthesisOutput),
-    output: formatParallelOutput(request, agentResults, synthesisOutput),
+    output: formatParallelOutput(request, agentResults, missionBoard, synthesisOutput),
+    missionBoard,
     agents: agentResults,
   }
 }
@@ -421,4 +678,13 @@ export function parseAgentIds(input?: string) {
     .filter(Boolean) as AgentRoleId[]
 
   return sanitizeAgents(parsed)
+}
+
+export function parseWorkflow(input?: string): AgentWorkflow | undefined {
+  if (!input?.trim()) {
+    return undefined
+  }
+
+  const normalized = input.trim().toLowerCase() as AgentWorkflow
+  return workflowDefinitions[normalized] ? normalized : undefined
 }

@@ -44,6 +44,7 @@ ipcMain.handle('talent:run', async (_event, requestPayload) => {
     prompt,
     workspaceContext,
     mode,
+    workflow,
   } = requestPayload as Record<string, string>
 
   return runOrbitForgeTask({
@@ -60,5 +61,9 @@ ipcMain.handle('talent:run', async (_event, requestPayload) => {
     prompt,
     workspaceContext,
     mode: mode === 'parallel' ? 'parallel' : 'single',
+    workflow:
+      workflow === 'review' || workflow === 'migration' || workflow === 'incident' || workflow === 'release'
+        ? workflow
+        : 'general',
   })
 })

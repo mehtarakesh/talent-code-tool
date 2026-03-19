@@ -91,10 +91,10 @@ OrbitForge now ships a shared parallel-agent framework in the public repo. The b
 - `Implementer` to propose the concrete patch path
 - `Critic` to challenge assumptions and surface missing proof
 
-Those lanes run together, then OrbitForge produces a converged recommendation on top of them.
+Those lanes run together, then OrbitForge adds a workflow-specific `Mission Board` with approval gates, handoff steps, and next prompts before producing a converged recommendation.
 
 Why that matters:
-It gives developers controlled disagreement without forcing them to choreograph three separate chats. The workflow stays effortless, but the answer quality gets harder to fool.
+It gives developers controlled disagreement without forcing them to choreograph three separate chats. The workflow stays effortless, but the answer quality gets harder to fool and easier to resume later.
 
 ### 5. Workspace context is rebuilt by hand every time someone changes tools
 
@@ -123,6 +123,36 @@ This repo now ships with Claude Code-ready project memory, rules, skills, and au
 
 Why that matters:
 Claude Code can contribute to the repo in a targeted way, and human contributors get a clearer map of what actually moves the product forward.
+
+## Agentic Workflows OrbitForge Now Targets
+
+OrbitForge is no longer just “single prompt” tooling. The public repo now includes workflow-aware mission planning for the most common agentic use cases discussed in the wild:
+
+- `general`
+  For multi-surface implementation work where the main pain is coordination and task ownership.
+- `review`
+  For parallel code review, evidence-backed findings, and missing-test detection.
+- `migration`
+  For long refactors or provider moves where rollout order and rollback matter more than raw code generation.
+- `incident`
+  For debugging or outage response where containment, competing hypotheses, and rollback need to stay separate.
+- `release`
+  For go/no-go decisions, packaging checks, and explicit approval gates before ship.
+
+These workflows are available in the shared core and exposed in the public surfaces:
+
+- CLI: `--parallel --workflow review`
+- Desktop: execution mode plus workflow selectors
+- VS Code: `orbitforge.workflow` plus panel-level workflow selection
+
+## Public Signal Behind This Direction
+
+This agentic layer is not based on a generic “more agents is better” assumption. It follows recurring public signal that the real bottleneck is coordinating long tasks safely:
+
+- Anthropic’s agent-team docs call out plan approval, quality gates, parallel code review, and competing hypotheses as core use cases: <https://docs.anthropic.com/en/docs/claude-code/agent-teams>
+- Anthropic’s sub-agent docs emphasize specialized delegated work instead of one giant generalist session: <https://docs.anthropic.com/en/docs/claude-code/sub-agents>
+- Cursor’s background-agent docs point in the same direction for long-running work and background execution: <https://docs.cursor.com/background-agent>
+- Community discussion keeps repeating that people spend too much time managing agents, context, and intent drift instead of coding: <https://www.reddit.com/r/AI_Agents/comments/1od50u1/anyone_else_feel_like_theyre_spending_more_time/>
 
 ## What Is Public In This Repo
 
@@ -181,7 +211,7 @@ It includes:
 
 Recommended Claude Code contribution lanes:
 
-- extract a shared provider adapter layer instead of keeping similar request logic in three places
+- deepen the workflow presets and mission-board quality
 - improve or extend the parallel-agent orchestration and convergence rules
 - normalize provider errors so the same failure has the same remediation text everywhere
 - add streaming support consistently across CLI, desktop, and VS Code
@@ -240,6 +270,8 @@ That setup lets Claude Code help with review and scoped implementation work insi
 OrbitForge is opinionated about the problems it wants to solve, but the public repo still has open work:
 
 - the parallel-agent runtime can gain stronger convergence heuristics and streaming updates
+- the mission-board workflow system is still text-first rather than interactive
+- long multi-turn runs still need better state carry-over between sessions
 - secure credential storage can be improved, especially outside hosted flows
 - Windows and Linux packaging need deeper release-host verification
 

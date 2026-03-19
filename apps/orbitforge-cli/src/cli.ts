@@ -3,8 +3,10 @@
 import {
   getProviderDefaults,
   parseAgentIds,
+  parseWorkflow,
   runOrbitForgeTask,
   type AgentMode,
+  type AgentWorkflow,
   type ProviderId,
 } from 'orbitforge-core'
 
@@ -59,6 +61,7 @@ function printHelp() {
 Usage:
   orbitforge --provider ollama --model deepseek-coder:33b --prompt "Plan the next patch"
   orbitforge --parallel --prompt "Find the safest implementation path"
+  orbitforge --parallel --workflow review --prompt "Review this risky change"
 
 Options:
   --provider         ollama | lmstudio | openai | anthropic | openrouter | openai-compatible
@@ -68,6 +71,7 @@ Options:
   --prompt           Task prompt to run
   --workspace        Optional workspace context string
   --parallel         Run the built-in architect / implementer / critic trio
+  --workflow         general | review | migration | incident | release
   --agents           Optional comma-separated agent list for parallel mode
   --temperature      Optional temperature, default 0.2
   --json             Print the structured run result as JSON
@@ -87,6 +91,7 @@ async function main() {
   const model = String(args.model || defaults.model)
   const prompt = String(args.prompt || '')
   const mode: AgentMode = args.parallel ? 'parallel' : 'single'
+  const workflow: AgentWorkflow = parseWorkflow(typeof args.workflow === 'string' ? args.workflow : undefined) || 'general'
 
   if (!prompt.trim()) {
     printHelp()
@@ -103,6 +108,7 @@ async function main() {
     workspaceContext: typeof args.workspace === 'string' ? args.workspace : undefined,
     temperature: typeof args.temperature === 'string' ? Number(args.temperature) : 0.2,
     mode,
+    workflow,
     agents: typeof args.agents === 'string' ? parseAgentIds(args.agents) : undefined,
   })
 

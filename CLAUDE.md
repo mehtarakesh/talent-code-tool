@@ -29,6 +29,7 @@ OrbitForge exists to solve a few specific problems:
 - local models being treated as second-class
 - AI output sounding complete without being release-ready
 - risky implementation choices being made from a single unchallenged agent lane
+- long tasks losing structure because approval gates, handoffs, and follow-up prompts are not explicit
 - workspace context getting lost between editor, shell, and desktop
 
 When making changes, optimize for those problems first.
@@ -68,6 +69,7 @@ Path:
 Key job:
 - shared provider invocation
 - parallel agent orchestration
+- workflow-aware mission boards
 - shared result formatting
 
 ## Build Commands
@@ -133,11 +135,28 @@ If you change that framework:
 - keep the single-agent path fast
 - avoid adding complexity that makes the feature feel like manual orchestration
 
-### 4. Prefer local-first ergonomics
+### 4. Preserve workflow clarity
+
+OrbitForge now has workflow presets:
+
+- `general`
+- `review`
+- `migration`
+- `incident`
+- `release`
+
+If you change them:
+
+- keep the pain point and use case obvious
+- keep approval gates actionable
+- keep handoffs readable
+- keep the workflow useful without needing a second explanation
+
+### 5. Prefer local-first ergonomics
 
 When choosing defaults, do not optimize only for hosted SaaS providers. Local Ollama and local OpenAI-compatible endpoints are a core part of the product story.
 
-### 5. Keep docs honest
+### 6. Keep docs honest
 
 If a capability is private, partial, or not implemented in this public repo, say so plainly in the README or comments rather than implying it already exists.
 
@@ -157,6 +176,7 @@ Claude Code should prioritize these over generic cleanup:
 
 - shared provider adapter extraction
 - stronger convergence heuristics for the parallel-agent runtime
+- workflow-specific mission-board improvements and interactive checkpoints
 - consistent response parsing and error normalization
 - packaging verification improvements for Windows and Linux
 - secure credential handling improvements

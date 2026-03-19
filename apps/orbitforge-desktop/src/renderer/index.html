@@ -45,6 +45,16 @@
                 <option value="parallel">Parallel Trio</option>
               </select>
             </label>
+            <label>
+              <span>Workflow</span>
+              <select id="workflow">
+                <option value="general">General Build</option>
+                <option value="review">Parallel Review</option>
+                <option value="migration">Migration Flight Plan</option>
+                <option value="incident">Incident Command</option>
+                <option value="release">Release Gate</option>
+              </select>
+            </label>
           </div>
 
           <label>
@@ -62,7 +72,7 @@
             <textarea id="prompt">Inspect the project, define the implementation plan, describe the patch strategy, and list release validation steps.</textarea>
           </label>
 
-          <p class="eyebrow">Parallel Trio runs Architect, Implementer, and Critic together, then converges their output.</p>
+          <p class="eyebrow">Parallel Trio runs Architect, Implementer, and Critic together, then adds a mission board, approval gates, and converged guidance.</p>
           <button id="runButton">Run prompt</button>
         </div>
 

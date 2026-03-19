@@ -2,6 +2,7 @@ const providerInput = document.getElementById('provider')
 const modelInput = document.getElementById('model')
 const baseUrlInput = document.getElementById('baseUrl')
 const modeInput = document.getElementById('mode')
+const workflowInput = document.getElementById('workflow')
 const apiKeyInput = document.getElementById('apiKey')
 const workspaceInput = document.getElementById('workspaceContext')
 const promptInput = document.getElementById('prompt')
@@ -35,6 +36,7 @@ runButton.addEventListener('click', async () => {
       model: modelInput.value,
       baseUrl: baseUrlInput.value,
       mode: modeInput.value,
+      workflow: workflowInput.value,
       apiKey: apiKeyInput.value,
       workspaceContext: workspaceInput.value,
       prompt: promptInput.value,

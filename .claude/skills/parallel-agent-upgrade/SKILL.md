@@ -12,6 +12,8 @@ Use this skill when the task involves:
 
 - new agent lanes
 - convergence rules
+- workflow presets
+- mission-board structure
 - lane prompts
 - output formatting
 - partial-failure behavior
@@ -31,5 +33,6 @@ Use this skill when the task involves:
 
 - do not turn the feature into manual agent choreography
 - keep the default trio easy to understand
+- keep workflow-specific approval gates and handoffs obvious
 - keep failure output actionable when one lane breaks
 - prefer readable convergence over clever-but-opaque scoring
