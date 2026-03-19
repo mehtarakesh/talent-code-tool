@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0
+
+- added true per-lane streaming for parallel missions with lane headers
+- added core streaming hooks for agent-level token callbacks
+
 ## 0.7.0
 
 - added provider streaming for single-lane missions (Ollama and OpenAI-compatible)

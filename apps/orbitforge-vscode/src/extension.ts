@@ -3,6 +3,7 @@ import {
   builtInLifecycleBlueprints,
   runOrbitForgeTask,
   type AgentMode,
+  type AgentLaneId,
   type AgentWorkflow,
   type OrbitForgeLifecycleBlueprint,
   type OrbitForgeRunResult,
@@ -74,6 +75,7 @@ type ExecuteMissionOptions = {
   onLog?: (line: string) => void
   onStage?: (stage: TimelineStageId) => void
   onToken?: (token: string) => void
+  onAgentToken?: (agentId: AgentLaneId, token: string) => void
 }
 
 type ExecuteMissionResult = {
@@ -859,16 +861,13 @@ async function requestTalent(
   workflow: AgentWorkflow,
   blueprint?: OrbitForgeLifecycleBlueprint,
   settings = getSettings(),
-  options?: { onToken?: (token: string) => void; forceStream?: boolean }
+  options?: { onToken?: (token: string) => void; onAgentToken?: (agentId: AgentLaneId, token: string) => void; forceStream?: boolean }
 ) {
-  const shouldStream =
-    Boolean(options?.forceStream) &&
-    settings.stream &&
-    mode === 'single' &&
-    supportsStreaming(settings.provider) &&
-    options?.onToken
+  const streamEnabled = Boolean(options?.forceStream) && settings.stream && supportsStreaming(settings.provider)
+  const shouldStreamSingle = streamEnabled && mode === 'single' && options?.onToken
+  const shouldStreamParallel = streamEnabled && mode === 'parallel' && options?.onAgentToken
 
-  if (shouldStream) {
+  if (shouldStreamSingle || shouldStreamParallel) {
     const result = await runOrbitForgeTask(
       {
         provider: settings.provider,
@@ -882,8 +881,15 @@ async function requestTalent(
         blueprint,
       },
       {
-        invoker: async (invocation) => {
-          return invokeWithStreaming(invocation, options.onToken as (token: string) => void)
+        invokerStream: async (invocation, onToken) => {
+          return invokeWithStreaming(invocation, onToken)
+        },
+        onAgentToken: (agentId, token) => {
+          if (shouldStreamSingle && options?.onToken) {
+            options.onToken(token)
+            return
+          }
+          options?.onAgentToken?.(agentId, token)
         },
       }
     )
@@ -970,12 +976,17 @@ async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMi
     options.workflow,
     options.blueprint,
     settings,
-    options.onToken && options.mode === 'single'
+    options.mode === 'single' && options.onToken
       ? {
           forceStream: true,
           onToken: options.onToken,
         }
-      : undefined
+      : options.mode === 'parallel' && options.onAgentToken
+        ? {
+            forceStream: true,
+            onAgentToken: options.onAgentToken,
+          }
+        : undefined
   )
 
   const output = `${runResult.summary}\n\n${runResult.output}`
@@ -1986,6 +1997,17 @@ export function activate(context: vscode.ExtensionContext) {
     pushTimeline(panel, 'context')
 
     try {
+      const streamEnabled = getSettings().stream && supportsStreaming(getSettings().provider)
+      const streamParallel = streamEnabled && mission.mode === 'parallel'
+      const laneTitles: Record<string, string> = {
+        architect: 'Architect',
+        implementer: 'Implementer',
+        critic: 'Critic',
+        synthesis: 'Synthesizer',
+        single: 'Single Lane',
+      }
+      const seenLanes = new Set<string>()
+      let hasReset = false
       const result = await executeMission({
         ...mission,
         extensionContext: context,
@@ -2000,21 +2022,34 @@ export function activate(context: vscode.ExtensionContext) {
             type: 'stream',
             sessionId,
             text: token,
-            reset: false,
+            reset: !hasReset,
           })
+          hasReset = true
+        },
+        onAgentToken: (agentId, token) => {
+          const laneId = String(agentId)
+          const header = seenLanes.has(laneId) ? '' : `\n\n### ${laneTitles[laneId] || laneId}\n\n`
+          seenLanes.add(laneId)
+          panel.webview.postMessage({
+            type: 'stream',
+            sessionId,
+            text: `${header}${token}`,
+            reset: !hasReset,
+          })
+          hasReset = true
         },
         onStage: (stage) => {
           pushTimeline(panel, stage)
         },
       })
 
-      if (getSettings().stream && mission.mode === 'single' && supportsStreaming(getSettings().provider)) {
-        // streaming already handled via onToken in requestTalent
+      if (streamEnabled) {
+        // streaming already handled via onToken/onAgentToken in requestTalent
         panel.webview.postMessage({
           type: 'log',
           entry: 'Streaming enabled: output delivered live.',
         })
-      } else if (mission.mode === 'parallel') {
+      } else if (mission.mode === 'parallel' && !streamParallel) {
         await streamParallelAgents(panel, sessionId, result.runResult)
       } else {
         await streamOutputToPanel(panel, sessionId, result.output)

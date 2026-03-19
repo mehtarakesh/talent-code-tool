@@ -15,7 +15,7 @@ Instead of stopping at chat and code generation, OrbitForge helps you run work w
 - multi-mission session tabs inside the panel
 - exportable mission history to markdown or JSON
 - built-in diff proposals and git branch scaffolding from the mission prompt
-- true provider streaming for single-lane missions when supported
+- true provider streaming for single and parallel lanes when supported
 - provider parity across local and hosted models
 - parallel architect / implementer / critic lanes
 - workflow-aware mission boards
@@ -92,7 +92,7 @@ Once published, install `OrbitForge` from the VS Code Marketplace or Open VSX.
 ### From VSIX
 
 ```bash
-code --install-extension orbitforge-vscode-0.7.0.vsix
+code --install-extension orbitforge-vscode-0.8.0.vsix
 ```
 
 ## Configure

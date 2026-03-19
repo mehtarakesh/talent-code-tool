@@ -2,7 +2,7 @@
   "name": "orbitforge-vscode",
   "displayName": "OrbitForge",
   "description": "Lifecycle-first AI coding workspace for Ollama, LM Studio, Anthropic, OpenAI, and compatible endpoints.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "mehtarakesh",
   "license": "Apache-2.0",
   "icon": "assets/icon.png",
@@ -139,7 +139,7 @@
         "orbitforge.stream": {
           "type": "boolean",
           "default": true,
-          "description": "Enable true provider streaming for single-lane runs when supported."
+          "description": "Enable true provider streaming for single and parallel lane runs when supported."
         }
       }
     }

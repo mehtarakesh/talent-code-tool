@@ -21,6 +21,8 @@ export type OrbitForgeRequest = {
   blueprint?: OrbitForgeLifecycleBlueprint
 }
 
+export type AgentLaneId = AgentRoleId | 'synthesis' | 'single'
+
 export type ProviderInvocation = {
   provider: ProviderId
   model: string
@@ -29,6 +31,8 @@ export type ProviderInvocation = {
   temperature?: number
   systemPrompt: string
   userPrompt: string
+  agentId?: AgentLaneId
+  agentTitle?: string
 }
 
 export type OrbitForgeAgentResult = {
@@ -53,6 +57,8 @@ export type OrbitForgeRunResult = {
 
 export type OrbitForgeRunOptions = {
   invoker?: (invocation: ProviderInvocation) => Promise<string>
+  invokerStream?: (invocation: ProviderInvocation, onToken: (token: string) => void) => Promise<string>
+  onAgentToken?: (agentId: AgentLaneId, token: string) => void
 }
 
 type AgentDefinition = {
@@ -448,6 +454,31 @@ function getInvoker(options?: OrbitForgeRunOptions) {
   return options?.invoker || invokeProvider
 }
 
+function getInvokerStream(options?: OrbitForgeRunOptions) {
+  return options?.invokerStream
+}
+
+async function invokeAgent(
+  invocation: ProviderInvocation,
+  options: OrbitForgeRunOptions | undefined,
+  agentId: AgentLaneId,
+  agentTitle?: string
+) {
+  const enrichedInvocation = {
+    ...invocation,
+    agentId,
+    agentTitle,
+  }
+  const streamInvoker = getInvokerStream(options)
+  const onAgentToken = options?.onAgentToken
+
+  if (streamInvoker && onAgentToken) {
+    return streamInvoker(enrichedInvocation, (token) => onAgentToken(agentId, token))
+  }
+
+  return getInvoker(options)(enrichedInvocation)
+}
+
 function getAgentFocus(agentId: AgentRoleId, workflow?: AgentWorkflow) {
   const workflowDefinition = getWorkflowDefinition(workflow)
   return `${agentDefinitions[agentId].focus} ${workflowDefinition.agentFocus[agentId]}`.trim()
@@ -569,15 +600,20 @@ function buildSummary(mode: AgentMode, agentResults: OrbitForgeAgentResult[], sy
 
 async function runSingleAgent(request: OrbitForgeRequest, options?: OrbitForgeRunOptions): Promise<OrbitForgeRunResult> {
   const missionBoard = buildMissionBoard(request, defaultParallelAgents)
-  const output = await getInvoker(options)({
-    provider: request.provider,
-    model: request.model,
-    baseUrl: request.baseUrl,
-    apiKey: request.apiKey,
-    temperature: request.temperature,
-    systemPrompt: defaultSystemPrompt,
-    userPrompt: buildUserPrompt(request.prompt, request.workspaceContext, undefined, request.workflow),
-  })
+  const output = await invokeAgent(
+    {
+      provider: request.provider,
+      model: request.model,
+      baseUrl: request.baseUrl,
+      apiKey: request.apiKey,
+      temperature: request.temperature,
+      systemPrompt: defaultSystemPrompt,
+      userPrompt: buildUserPrompt(request.prompt, request.workspaceContext, undefined, request.workflow),
+    },
+    options,
+    'single',
+    'Single Lane'
+  )
 
   return {
     mode: 'single',
@@ -592,7 +628,6 @@ async function runSingleAgent(request: OrbitForgeRequest, options?: OrbitForgeRu
 }
 
 async function runParallelAgents(request: OrbitForgeRequest, options?: OrbitForgeRunOptions): Promise<OrbitForgeRunResult> {
-  const invoker = getInvoker(options)
   const selectedAgents = sanitizeAgents(request.agents)
   const missionBoard = buildMissionBoard(request, selectedAgents)
 
@@ -602,15 +637,25 @@ async function runParallelAgents(request: OrbitForgeRequest, options?: OrbitForg
       const startedAt = Date.now()
 
       try {
-        const output = await invoker({
-          provider: request.provider,
-          model: request.model,
-          baseUrl: request.baseUrl,
-          apiKey: request.apiKey,
-          temperature: request.temperature,
-          systemPrompt: getAgentSystemPrompt(agentId, request.workflow),
-          userPrompt: buildUserPrompt(request.prompt, request.workspaceContext, getAgentFocus(agentId, request.workflow), request.workflow),
-        })
+        const output = await invokeAgent(
+          {
+            provider: request.provider,
+            model: request.model,
+            baseUrl: request.baseUrl,
+            apiKey: request.apiKey,
+            temperature: request.temperature,
+            systemPrompt: getAgentSystemPrompt(agentId, request.workflow),
+            userPrompt: buildUserPrompt(
+              request.prompt,
+              request.workspaceContext,
+              getAgentFocus(agentId, request.workflow),
+              request.workflow
+            ),
+          },
+          options,
+          agent.id,
+          agent.title
+        )
 
         return {
           id: agent.id,
@@ -638,15 +683,20 @@ async function runParallelAgents(request: OrbitForgeRequest, options?: OrbitForg
 
   if (successfulResults.length >= 2) {
     try {
-      synthesisOutput = await invoker({
-        provider: request.provider,
-        model: request.model,
-        baseUrl: request.baseUrl,
-        apiKey: request.apiKey,
-        temperature: request.temperature,
-        systemPrompt: synthesisSystemPrompt,
-        userPrompt: buildSynthesisPrompt(request, successfulResults),
-      })
+      synthesisOutput = await invokeAgent(
+        {
+          provider: request.provider,
+          model: request.model,
+          baseUrl: request.baseUrl,
+          apiKey: request.apiKey,
+          temperature: request.temperature,
+          systemPrompt: synthesisSystemPrompt,
+          userPrompt: buildSynthesisPrompt(request, successfulResults),
+        },
+        options,
+        'synthesis',
+        'Synthesizer'
+      )
     } catch {
       synthesisOutput = ''
     }
