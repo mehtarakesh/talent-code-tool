@@ -23,6 +23,9 @@ Instead of stopping at chat and code generation, OrbitForge helps you run work w
 - workflow-aware mission boards
 - starter blueprints for review, migration, incident, and release work
 - portable lifecycle contracts that also work in the OrbitForge CLI
+- adaptive pro mission client with a bounded result shell, sticky step rail, and side utilities
+- rendered, raw, and split mission views for fast reading and transcript verification
+- host-side markdown rendering with syntax-aware code treatment across docs, scripts, typed languages, config, and diffs
 
 ## Why Install OrbitForge
 
@@ -95,7 +98,7 @@ Once published, install `OrbitForge` from the VS Code Marketplace or Open VSX.
 ### From VSIX
 
 ```bash
-code --install-extension orbitforge-vscode-0.9.0.vsix
+code --install-extension orbitforge-vscode-0.10.0.vsix
 ```
 
 ## Configure
@@ -136,6 +139,16 @@ Inside the panel, you can type slash commands like:
 - `/export json`
 - `/branch add-release-gate`
 - `/diff src/app.tsx`
+
+## Pro Mission Client
+
+OrbitForge now renders mission output inside a dedicated result surface instead of a raw text dump.
+
+- sticky step rail navigation built from mission headings
+- collapsible sections for long release plans, debates, and review runs
+- syntax-highlighted code blocks with copy actions for `.md`, `.py`, `.java`, `.ts`, `.tsx`, `.js`, `.jsx`, `.json`, `.bash`, `.yaml`, `.sql`, and `diff`
+- rendered, raw, and split views so you can compare the polished brief against the exact transcript
+- quick copy actions for rendered text, raw markdown, section anchors, and individual code blocks
 
 ## Development
 

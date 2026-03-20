@@ -11,6 +11,11 @@ import {
 } from 'orbitforge-core'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
+import {
+  renderMissionOutput,
+  type MissionCodeBlock,
+  type MissionHeading,
+} from './mission-renderer'
 
 const execAsync = promisify(exec)
 
@@ -93,6 +98,9 @@ type ExecuteMissionOptions = {
 
 type ExecuteMissionResult = {
   output: string
+  renderedHtml: string
+  headings: MissionHeading[]
+  codeBlocks: MissionCodeBlock[]
   contextLabel: string
   summary: string
   history: MissionHistoryEntry[]
@@ -341,6 +349,13 @@ async function collectRuntimePanelState(settings = getSettings()): Promise<Runti
 
 function escapeHtml(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function serializeForWebview(value: unknown) {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
 }
 
 function normalizeLookup(value: string) {
@@ -1139,6 +1154,7 @@ async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMi
   )
 
   const output = `${runResult.summary}\n\n${runResult.output}`
+  const rendered = await renderMissionOutput(output)
   options.onStage?.('synthesis')
   const summary = extractMissionSummary(output)
   const historyEntry: MissionHistoryEntry = {
@@ -1163,6 +1179,9 @@ async function executeMission(options: ExecuteMissionOptions): Promise<ExecuteMi
 
   return {
     output,
+    renderedHtml: rendered.renderedHtml,
+    headings: rendered.headings,
+    codeBlocks: rendered.codeBlocks,
     contextLabel,
     summary,
     history,
@@ -1493,6 +1512,12 @@ function renderPanel(
   timelineStage: TimelineStageId = 'idle',
   output = 'Pick a preset, use a slash command, rerun history, or launch a blueprint. OrbitForge keeps the loop inside this workspace.'
 ) {
+  const initialClientState = serializeForWebview({
+    welcomeText: output,
+    mode: initialMode,
+    workflow: initialWorkflow,
+  })
+
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -1500,35 +1525,45 @@ function renderPanel(
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
       :root {
-        color-scheme: dark;
-        --bg: #04111f;
-        --panel: rgba(8, 20, 35, 0.92);
-        --panel-2: rgba(15, 29, 48, 0.95);
-        --line: rgba(148, 163, 184, 0.18);
-        --text: #dbe7f5;
-        --muted: #8ba3bd;
-        --accent: #69f5e1;
-        --accent-2: #7dd3fc;
+        color-scheme: light dark;
+        --bg: var(--vscode-editor-background);
+        --panel: var(--vscode-sideBar-background, rgba(10, 20, 34, 0.9));
+        --panel-2: var(--vscode-editorWidget-background, rgba(15, 25, 40, 0.92));
+        --panel-3: var(--vscode-input-background, rgba(20, 31, 48, 0.92));
+        --line: var(--vscode-widget-border, rgba(148, 163, 184, 0.18));
+        --line-strong: rgba(110, 231, 216, 0.34);
+        --text: var(--vscode-editor-foreground);
+        --muted: var(--vscode-descriptionForeground);
+        --accent: #6ee7d8;
+        --accent-2: #74c0fc;
+        --accent-3: #f59e0b;
+        --success: #4ade80;
+        --danger: #fb7185;
+        --shadow: 0 18px 48px rgba(2, 6, 23, 0.26);
+        --radius-lg: 24px;
+        --radius-md: 18px;
+        --radius-sm: 14px;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at top left, rgba(34, 211, 238, 0.16), transparent 28%),
-          radial-gradient(circle at top right, rgba(129, 140, 248, 0.12), transparent 30%),
+          radial-gradient(circle at top left, rgba(110, 231, 216, 0.16), transparent 26%),
+          radial-gradient(circle at top right, rgba(116, 192, 252, 0.14), transparent 30%),
+          radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.08), transparent 24%),
           var(--bg);
         color: var(--text);
         padding: 20px;
       }
       .shell { display: grid; gap: 16px; }
-      .hero, .glass, pre, .logs, .timeline {
+      .card {
         border: 1px solid var(--line);
-        border-radius: 20px;
+        border-radius: var(--radius-lg);
         background: var(--panel);
-        box-shadow: 0 18px 48px rgba(2, 6, 23, 0.34);
+        box-shadow: var(--shadow);
       }
-      .hero, .glass, .timeline { padding: 18px; }
+      .hero, .glass, .timeline, .mission-shell, .logs { padding: 18px; }
       .eyebrow {
         font-size: 11px;
         letter-spacing: 0.18em;
@@ -1546,8 +1581,8 @@ function renderPanel(
         border-radius: 999px;
         border: 1px solid var(--line);
         padding: 8px 12px;
-        background: rgba(15, 23, 42, 0.72);
-        color: #d6e4f5;
+        background: rgba(15, 23, 42, 0.42);
+        color: var(--text);
         font-size: 12px;
       }
       .grid { display: grid; gap: 16px; grid-template-columns: 1.15fr 0.85fr; }
@@ -1561,10 +1596,11 @@ function renderPanel(
       .preset-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
       .preset-card, .slash-chip {
         border: 1px solid var(--line);
-        border-radius: 16px;
-        background: linear-gradient(180deg, rgba(14, 26, 45, 0.96), rgba(10, 18, 33, 0.9));
+        border-radius: var(--radius-sm);
+        background: linear-gradient(180deg, rgba(14, 26, 45, 0.96), rgba(10, 18, 33, 0.88));
         color: var(--text);
         cursor: pointer;
+        transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
       }
       .preset-card {
         width: 100%;
@@ -1572,7 +1608,9 @@ function renderPanel(
         padding: 14px;
       }
       .preset-card:hover, .slash-chip:hover, .history-action:hover {
-        border-color: rgba(105, 245, 225, 0.45);
+        border-color: var(--line-strong);
+        transform: translateY(-1px);
+        box-shadow: 0 12px 24px rgba(2, 6, 23, 0.18);
       }
       .preset-title { display: block; font-weight: 700; margin-bottom: 6px; }
       .preset-summary { display: block; color: var(--muted); font-size: 12px; line-height: 1.5; }
@@ -1581,9 +1619,9 @@ function renderPanel(
       .history-stack { display: grid; gap: 10px; }
       .history-card {
         border: 1px solid var(--line);
-        border-radius: 16px;
+        border-radius: var(--radius-md);
         padding: 12px;
-        background: rgba(15, 23, 42, 0.7);
+        background: rgba(15, 23, 42, 0.58);
       }
       .history-title-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
       .history-title { font-weight: 700; }
@@ -1617,14 +1655,21 @@ function renderPanel(
         border-radius: 999px;
         padding: 8px 12px;
         font-size: 12px;
-        background: rgba(15, 23, 42, 0.7);
+        background: rgba(15, 23, 42, 0.58);
         color: var(--muted);
         cursor: pointer;
+        transition: border-color 120ms ease, color 120ms ease, transform 120ms ease;
       }
       .session-tab.active {
         color: var(--text);
-        border-color: rgba(105, 245, 225, 0.4);
-        background: rgba(14, 26, 45, 0.9);
+        border-color: var(--line-strong);
+        background: rgba(14, 26, 45, 0.92);
+        transform: translateY(-1px);
+      }
+      .session-meta {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 12px;
       }
       label { display: block; margin-bottom: 12px; }
       .label {
@@ -1639,16 +1684,23 @@ function renderPanel(
       }
       input, select, textarea, button {
         width: 100%;
-        border-radius: 16px;
+        border-radius: var(--radius-sm);
       }
       input, select, textarea {
         padding: 12px 14px;
         border: 1px solid var(--line);
-        background: var(--panel-2);
+        background: var(--panel-3);
         color: var(--text);
       }
       textarea { min-height: 180px; resize: vertical; line-height: 1.6; }
-      button { border: none; padding: 12px 14px; font-weight: 700; cursor: pointer; }
+      button {
+        border: none;
+        padding: 12px 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+      }
+      button:hover { transform: translateY(-1px); }
       .runtime-note {
         margin-top: 8px;
         color: var(--accent);
@@ -1664,21 +1716,21 @@ function renderPanel(
       .model-chip {
         border: 1px solid var(--line);
         border-radius: 999px;
-        background: rgba(15, 23, 42, 0.7);
+        background: rgba(15, 23, 42, 0.58);
         color: var(--text);
         padding: 8px 12px;
         font-size: 12px;
         cursor: pointer;
       }
       .model-chip:hover {
-        border-color: rgba(105, 245, 225, 0.45);
+        border-color: var(--line-strong);
       }
       .primary {
         background: linear-gradient(135deg, var(--accent), var(--accent-2));
         color: #04263a;
       }
       .secondary {
-        background: rgba(15, 23, 42, 0.9);
+        background: rgba(15, 23, 42, 0.84);
         color: var(--text);
         border: 1px solid var(--line);
       }
@@ -1688,9 +1740,6 @@ function renderPanel(
         border: 1px dashed var(--line);
       }
       .status { color: var(--accent); font-size: 12px; min-height: 18px; }
-      .logs {
-        padding: 16px;
-      }
       .log-list {
         margin: 0;
         padding: 0;
@@ -1712,7 +1761,7 @@ function renderPanel(
       }
       .timeline-step {
         border: 1px solid var(--line);
-        border-radius: 14px;
+        border-radius: var(--radius-sm);
         padding: 10px 12px;
         font-size: 12px;
         color: var(--muted);
@@ -1743,45 +1792,529 @@ function renderPanel(
         border-color: rgba(125, 211, 252, 0.35);
         color: #d6e4f5;
       }
-      pre {
+
+      .mission-shell {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 260px minmax(0, 1fr) 300px;
+        align-items: start;
+      }
+      .step-rail-card,
+      .mission-header-card,
+      .mission-canvas-card,
+      .utility-card {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: linear-gradient(180deg, rgba(12, 23, 38, 0.94), rgba(11, 18, 31, 0.9));
+        box-shadow: var(--shadow);
+      }
+      .step-rail-card,
+      .mission-header-card,
+      .mission-canvas-card,
+      .utility-card {
+        padding: 16px;
+      }
+      .step-rail-card,
+      .utility-stack {
+        position: sticky;
+        top: 20px;
+      }
+      .step-rail-copy {
+        margin-bottom: 14px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .step-rail {
+        display: grid;
+        gap: 10px;
+      }
+      .step-link {
+        border: 1px solid var(--line);
+        background: rgba(15, 23, 42, 0.58);
+        color: var(--text);
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px;
+        text-align: left;
+        padding: 10px 12px;
+      }
+      .step-link[data-step-depth="1"] { margin-left: 10px; }
+      .step-link[data-step-depth="2"] { margin-left: 20px; }
+      .step-link:hover,
+      .step-link.active {
+        border-color: var(--line-strong);
+      }
+      .step-index {
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        color: var(--accent);
+      }
+      .step-text {
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .mission-main {
+        display: grid;
+        gap: 16px;
+      }
+      .mission-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-start;
+      }
+      .mission-title {
+        margin: 6px 0 6px;
+        font-size: 24px;
+        line-height: 1.1;
+      }
+      .mission-subtitle {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+      .mission-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 16px;
+      }
+      .status-stack {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 8px 12px;
+        border: 1px solid var(--line);
+        font-size: 12px;
+      }
+      .status-chip.active {
+        border-color: rgba(110, 231, 216, 0.42);
+        color: var(--accent);
+      }
+      .status-chip.success {
+        border-color: rgba(74, 222, 128, 0.36);
+        color: var(--success);
+      }
+      .status-chip.danger {
+        border-color: rgba(251, 113, 133, 0.34);
+        color: var(--danger);
+      }
+      .status-chip.subtle {
+        color: var(--muted);
+      }
+      .render-mode-group {
+        display: inline-flex;
+        gap: 8px;
+        padding: 6px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.54);
+      }
+      .render-mode-button {
+        width: auto;
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: transparent;
+        color: var(--muted);
+      }
+      .render-mode-button.active {
+        background: linear-gradient(135deg, rgba(110, 231, 216, 0.18), rgba(116, 192, 252, 0.22));
+        color: var(--text);
+      }
+      .mission-canvas {
+        min-height: 420px;
+      }
+      .mission-empty,
+      .mission-live-card,
+      .raw-pane,
+      .render-pane {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: rgba(9, 16, 28, 0.68);
+        overflow: hidden;
+      }
+      .mission-empty {
+        padding: 28px;
+      }
+      .mission-empty h3 {
+        margin: 0 0 10px;
+        font-size: 22px;
+      }
+      .mission-empty p,
+      .mission-empty li {
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      .mission-empty ul {
+        margin: 16px 0 0;
+        padding-left: 18px;
+      }
+      .mission-live-topbar,
+      .pane-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(15, 23, 42, 0.44);
+      }
+      .live-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .live-pulse {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--accent);
+        box-shadow: 0 0 0 0 rgba(110, 231, 216, 0.55);
+        animation: orbitforge-pulse 1.6s infinite;
+      }
+      @keyframes orbitforge-pulse {
+        0% { box-shadow: 0 0 0 0 rgba(110, 231, 216, 0.5); }
+        70% { box-shadow: 0 0 0 12px rgba(110, 231, 216, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(110, 231, 216, 0); }
+      }
+      .live-copy,
+      .utility-button,
+      .section-anchor,
+      .of-code-copy {
+        width: auto;
+        padding: 8px 12px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.58);
+        color: var(--text);
+        font-size: 12px;
+      }
+      .live-transcript,
+      .raw-transcript {
         margin: 0;
         padding: 18px;
         white-space: pre-wrap;
-        line-height: 1.65;
+        line-height: 1.7;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: var(--text);
+      }
+      .mission-view-grid {
+        display: grid;
+        gap: 16px;
+      }
+      .mission-view-grid.split {
+        grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr);
+      }
+      .render-pane .pane-topbar,
+      .raw-pane .pane-topbar {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+      .mission-body {
+        padding: 18px;
+      }
+      .mission-body > :first-child { margin-top: 0; }
+      .mission-body > :last-child { margin-bottom: 0; }
+      .mission-body p,
+      .mission-body li,
+      .mission-body blockquote {
+        line-height: 1.75;
+      }
+      .mission-body h1,
+      .mission-body h2,
+      .mission-body h3,
+      .mission-body h4 {
+        margin: 0;
+        font-size: 18px;
+      }
+      .mission-body table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 12px 0;
+        overflow: hidden;
+        border-radius: 12px;
+      }
+      .mission-body th,
+      .mission-body td {
+        border: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+      }
+      .mission-body th {
+        background: rgba(15, 23, 42, 0.54);
+      }
+      .mission-body blockquote {
+        margin: 12px 0;
+        padding: 10px 14px;
+        border-left: 3px solid rgba(110, 231, 216, 0.5);
+        background: rgba(15, 23, 42, 0.38);
+        color: var(--text);
+      }
+      .mission-body a {
+        color: var(--accent-2);
+        text-decoration: none;
+      }
+      .mission-body a:hover {
+        text-decoration: underline;
+      }
+      .mission-body code:not(.shiki code) {
+        background: rgba(15, 23, 42, 0.58);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.2em 0.4em;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.92em;
+      }
+      .mission-section {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        margin-bottom: 14px;
+        background: rgba(15, 23, 42, 0.34);
+      }
+      .mission-section summary {
+        list-style: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        cursor: pointer;
+      }
+      .mission-section summary::-webkit-details-marker {
+        display: none;
+      }
+      .mission-section-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+      }
+      .mission-section-index {
+        color: var(--accent);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+      }
+      .mission-section-body {
+        padding: 0 16px 16px;
+      }
+      .mission-section-body > :first-child {
+        margin-top: 0;
+      }
+      .mission-section-body > :last-child {
+        margin-bottom: 0;
+      }
+      .of-code-frame {
+        margin: 14px 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+      }
+      .of-code-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+      .of-code-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .of-code-badge,
+      .of-code-family {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+      }
+      .of-code-frame[data-family="docs"] .of-code-toolbar {
+        background: linear-gradient(90deg, rgba(245, 158, 11, 0.16), rgba(245, 158, 11, 0.05));
+      }
+      .of-code-frame[data-family="script"] .of-code-toolbar {
+        background: linear-gradient(90deg, rgba(110, 231, 216, 0.16), rgba(110, 231, 216, 0.05));
+      }
+      .of-code-frame[data-family="typed"] .of-code-toolbar {
+        background: linear-gradient(90deg, rgba(116, 192, 252, 0.16), rgba(116, 192, 252, 0.05));
+      }
+      .of-code-frame[data-family="data"] .of-code-toolbar {
+        background: linear-gradient(90deg, rgba(167, 139, 250, 0.16), rgba(167, 139, 250, 0.05));
+      }
+      .of-code-frame[data-family="generic"] .of-code-toolbar {
+        background: linear-gradient(90deg, rgba(148, 163, 184, 0.16), rgba(148, 163, 184, 0.05));
+      }
+      .of-code-surface .shiki,
+      .of-plain-code {
+        margin: 0;
+        padding: 18px !important;
+        overflow-x: auto;
+        background: transparent !important;
+      }
+      .utility-stack {
+        display: grid;
+        gap: 16px;
+      }
+      .utility-card p,
+      .utility-card li {
+        color: var(--muted);
+        line-height: 1.7;
+        font-size: 13px;
+      }
+      .utility-stat-grid {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .utility-stat {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 12px;
+        background: rgba(15, 23, 42, 0.42);
+      }
+      .utility-stat strong {
+        display: block;
+        font-size: 18px;
+        margin-top: 6px;
+      }
+      .utility-button-row {
+        display: grid;
+        gap: 10px;
+      }
+      .utility-list {
+        margin: 10px 0 0;
+        padding-left: 18px;
+      }
+      .legend-grid {
+        display: grid;
+        gap: 8px;
+      }
+      .legend-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: rgba(15, 23, 42, 0.42);
+        font-size: 12px;
+      }
+      .legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+      }
+      .legend-docs { background: #f59e0b; }
+      .legend-script { background: #6ee7d8; }
+      .legend-typed { background: #74c0fc; }
+      .legend-data { background: #a78bfa; }
+      .legend-generic { background: #94a3b8; }
+
+      @media (max-width: 1220px) {
+        .mission-shell {
+          grid-template-columns: 220px minmax(0, 1fr);
+        }
+        .utility-stack {
+          grid-column: 1 / -1;
+          position: static;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .utility-card {
+          min-width: 0;
+        }
       }
       @media (max-width: 940px) {
-        .grid { grid-template-columns: 1fr; }
+        .grid,
+        .mission-shell,
+        .mission-view-grid.split,
+        .utility-stack {
+          grid-template-columns: 1fr;
+        }
+        .step-rail-card,
+        .utility-stack {
+          position: static;
+        }
+        .mission-header {
+          flex-direction: column;
+        }
+        .status-stack {
+          justify-content: flex-start;
+        }
       }
     </style>
   </head>
   <body>
     <div class="shell">
-      <section class="hero">
+      <section class="hero card">
         <div class="eyebrow">OrbitForge interactive workspace</div>
         <h1>Guide the agents like Claude Code, steer lifecycles like n8n, keep everything in VS Code.</h1>
         <p>Use presets, slash commands, blueprints, and rerunnable mission history without losing the active workspace context.</p>
         <div id="context-grid" class="context-grid">${renderContextCards(snapshot)}</div>
       </section>
 
-      <section class="timeline">
+      <section class="timeline card">
         <div class="section-title">Mission timeline</div>
         <div id="timeline-row" class="timeline-row">${renderTimeline(timelineStage)}</div>
       </section>
 
-      <section class="glass">
+      <section class="glass card">
         <div class="section-title">Mission sessions</div>
         <div id="session-tabs" class="session-tabs"></div>
-        <div id="session-meta" class="hint">Start a mission to create a session tab.</div>
+        <div id="session-meta" class="session-meta">Start a mission to create a session tab.</div>
+      </section>
+
+      <section class="mission-shell">
+        <aside class="step-rail-card">
+          <div class="section-title">Step rail</div>
+          <div class="step-rail-copy">OrbitForge turns long agent output into a clickable mission map so you can jump between the board, lane arguments, risks, and validation proof.</div>
+          <div id="step-rail" class="step-rail"></div>
+        </aside>
+
+        <div class="mission-main">
+          <section class="mission-header-card">
+            <div id="mission-header" class="mission-header"></div>
+            <div class="mission-toolbar">
+              <div class="render-mode-group">
+                <button type="button" class="render-mode-button active" data-render-mode="rendered">Rendered</button>
+                <button type="button" class="render-mode-button" data-render-mode="raw">Raw</button>
+                <button type="button" class="render-mode-button" data-render-mode="split">Split</button>
+              </div>
+              <div class="hint">Rendered gives you the polished brief, Raw keeps the transcript exact, Split shows both.</div>
+            </div>
+          </section>
+
+          <section class="mission-canvas-card">
+            <div id="mission-canvas" class="mission-canvas"></div>
+          </section>
+        </div>
+
+        <aside id="utility-panel" class="utility-stack"></aside>
       </section>
 
       <div class="grid">
-        <section class="glass">
+        <section class="glass card">
           <div class="section-title">Pinned presets</div>
           <div id="pinned-grid" class="preset-grid">${renderPinnedPresetCards(pinnedPresets)}</div>
           <div class="hint">Use /pin &lt;preset-id&gt; to keep a preset here.</div>
         </section>
 
-        <section class="glass">
+        <section class="glass card">
           <div class="section-title">Preset launches</div>
           <div class="preset-grid">${renderPresetCards()}</div>
           <div class="hint">Presets rewrite the mission prompt, workflow, and context scope so you can get to a strong run in one click.</div>
@@ -1792,7 +2325,7 @@ function renderPanel(
       </div>
 
       <div class="grid">
-        <section class="glass">
+        <section class="glass card">
           <div class="section-title">Runtime lane</div>
           <label>
             <div class="label"><span>Provider</span><span>Choose the active runtime</span></div>
@@ -1821,7 +2354,7 @@ function renderPanel(
           </div>
         </section>
 
-        <section class="glass">
+        <section class="glass card">
           <div class="section-title">Mission composer</div>
           <label>
             <div class="label"><span>Execution mode</span><span>Single or dissent-driven</span></div>
@@ -1864,7 +2397,7 @@ function renderPanel(
           <div id="status" class="status"></div>
         </section>
 
-        <section class="glass">
+        <section class="glass card">
           <div class="section-title">Mission history</div>
           <div class="button-row" style="margin-bottom: 10px;">
             <button class="secondary" id="exportHistory">Export History</button>
@@ -1873,19 +2406,17 @@ function renderPanel(
         </section>
       </div>
 
-      <section class="logs">
+      <section class="logs card">
         <div class="section-title">Run log</div>
         <ul id="log-list" class="log-list">
           <li class="log-entry">Ready. Launch a mission to watch OrbitForge stage context, lanes, and history updates.</li>
         </ul>
       </section>
-
-      <pre id="output">${escapeHtml(output)}</pre>
     </div>
 
     <script>
       const vscode = acquireVsCodeApi();
-      const output = document.getElementById('output');
+      const initialClientState = ${initialClientState};
       const status = document.getElementById('status');
       const prompt = document.getElementById('prompt');
       const provider = document.getElementById('provider');
@@ -1903,12 +2434,23 @@ function renderPanel(
       const sessionMeta = document.getElementById('session-meta');
       const logList = document.getElementById('log-list');
       const timelineRow = document.getElementById('timeline-row');
+      const stepRail = document.getElementById('step-rail');
+      const missionHeader = document.getElementById('mission-header');
+      const missionCanvas = document.getElementById('mission-canvas');
+      const utilityPanel = document.getElementById('utility-panel');
       const sessions = [];
       let activeSessionId = null;
+      let renderMode = 'rendered';
 
       const setStatus = (value) => {
         status.textContent = value || '';
       };
+
+      const escapeHtmlClient = (value) => String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 
       const clearLogs = () => {
         logList.innerHTML = '';
@@ -1928,11 +2470,289 @@ function renderPanel(
       };
 
       const getSession = (id) => sessions.find((session) => session.id === id);
+      const getActiveSession = () => getSession(activeSessionId) || sessions[0] || null;
+
+      const copyText = async (value, successMessage) => {
+        if (!value) {
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(value);
+          setStatus(successMessage || 'Copied.');
+        } catch {
+          const area = document.createElement('textarea');
+          area.value = value;
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand('copy');
+          area.remove();
+          setStatus(successMessage || 'Copied.');
+        }
+      };
+
+      const statusTone = (value) => {
+        const normalized = String(value || '').toLowerCase();
+        if (!normalized) return 'subtle';
+        if (normalized.includes('fail') || normalized.includes('error')) return 'danger';
+        if (normalized.includes('running') || normalized.includes('stream')) return 'active';
+        if (
+          normalized.includes('complete') ||
+          normalized.includes('saved') ||
+          normalized.includes('loaded') ||
+          normalized.includes('restored')
+        ) return 'success';
+        return 'subtle';
+      };
+
+      const renderModeButtons = () => {
+        document.querySelectorAll('[data-render-mode]').forEach((button) => {
+          const active = button.dataset.renderMode === renderMode;
+          button.classList.toggle('active', active);
+          button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+      };
+
+      const renderMissionHeader = (session) => {
+        if (!session) {
+          missionHeader.innerHTML =
+            '<div><div class="eyebrow">Mission surface</div><h2 class="mission-title">Compose, run, inspect, act.</h2><p class="mission-subtitle">OrbitForge keeps your run bounded, readable, and reviewable. Start with a preset or write a custom mission below.</p></div>' +
+            '<div class="status-stack"><span class="status-chip subtle">Idle</span></div>';
+          return;
+        }
+
+        missionHeader.innerHTML =
+          '<div>' +
+            '<div class="eyebrow">Mission surface</div>' +
+            '<h2 class="mission-title">' + escapeHtmlClient(session.title || 'Mission') + '</h2>' +
+            '<p class="mission-subtitle">' + escapeHtmlClient(session.summary || 'OrbitForge is staging the mission output into a structured brief.') + '</p>' +
+          '</div>' +
+          '<div class="status-stack">' +
+            '<span class="status-chip ' + statusTone(session.status) + '">' + escapeHtmlClient(session.status || 'running') + '</span>' +
+            '<span class="status-chip subtle">' + escapeHtmlClient(session.source || 'panel') + '</span>' +
+          '</div>';
+      };
+
+      const renderStepRail = (session) => {
+        if (!session) {
+          stepRail.innerHTML = '<div class="empty-state">Run a mission to generate a clickable section map.</div>';
+          return;
+        }
+
+        const headings = Array.isArray(session.headings) && session.headings.length
+          ? session.headings
+          : [{ id: 'mission-live', text: 'Live transcript', level: 1 }];
+
+        stepRail.innerHTML = headings
+          .map((heading, index) => {
+            const depth = Math.max(0, Math.min(2, Number(heading.level || 1) - 1));
+            return '<button class="step-link" data-step-target="' + escapeHtmlClient(heading.id) + '" data-step-depth="' + depth + '">' +
+              '<span class="step-index">' + String(index + 1).padStart(2, '0') + '</span>' +
+              '<span class="step-text">' + escapeHtmlClient(heading.text || ('Section ' + (index + 1))) + '</span>' +
+            '</button>';
+          })
+          .join('');
+      };
+
+      const renderUtilityPanel = (session) => {
+        if (!session) {
+          utilityPanel.innerHTML =
+            '<section class="utility-card">' +
+              '<div class="section-title">Why this surface exists</div>' +
+              '<p>OrbitForge turns raw agent output into a bounded mission brief so release gates, risks, and validation proof are harder to miss.</p>' +
+              '<ul class="utility-list">' +
+                '<li>Rendered mode is optimized for reading and sharing.</li>' +
+                '<li>Raw mode keeps the exact markdown and transcript.</li>' +
+                '<li>Split mode helps you verify how the polished brief maps to the underlying output.</li>' +
+              '</ul>' +
+            '</section>' +
+            '<section class="utility-card">' +
+              '<div class="section-title">Execution tips</div>' +
+              '<div class="utility-button-row">' +
+                '<button type="button" class="utility-button" data-run-helper="preset">Load a preset below</button>' +
+                '<button type="button" class="utility-button" data-run-helper="runtime">Refresh runtime before a run</button>' +
+              '</div>' +
+            '</section>' +
+            '<section class="utility-card">' +
+              '<div class="section-title">Code color legend</div>' +
+              '<div class="legend-grid">' +
+                '<span class="legend-chip"><span class="legend-dot legend-docs"></span>Docs / Markdown</span>' +
+                '<span class="legend-chip"><span class="legend-dot legend-script"></span>Scripts / Shell / Python</span>' +
+                '<span class="legend-chip"><span class="legend-dot legend-typed"></span>Typed / Compiled</span>' +
+                '<span class="legend-chip"><span class="legend-dot legend-data"></span>Data / Config / Diff</span>' +
+                '<span class="legend-chip"><span class="legend-dot legend-generic"></span>Fallback</span>' +
+              '</div>' +
+            '</section>';
+          return;
+        }
+
+        utilityPanel.innerHTML =
+          '<section class="utility-card">' +
+            '<div class="section-title">Mission stats</div>' +
+            '<div class="utility-stat-grid">' +
+              '<div class="utility-stat"><span>Sections</span><strong>' + String((session.headings || []).length || 1) + '</strong></div>' +
+              '<div class="utility-stat"><span>Code blocks</span><strong>' + String((session.codeBlocks || []).length) + '</strong></div>' +
+              '<div class="utility-stat"><span>Mode</span><strong>' + escapeHtmlClient(renderMode) + '</strong></div>' +
+              '<div class="utility-stat"><span>Source</span><strong>' + escapeHtmlClient(session.source || 'panel') + '</strong></div>' +
+            '</div>' +
+          '</section>' +
+          '<section class="utility-card">' +
+            '<div class="section-title">Quick actions</div>' +
+            '<div class="utility-button-row">' +
+              '<button type="button" class="utility-button" data-copy-session="rendered">Copy rendered text</button>' +
+              '<button type="button" class="utility-button" data-copy-session="raw">Copy raw markdown</button>' +
+            '</div>' +
+            '<p>' + escapeHtmlClient(session.summary || 'No summary yet.') + '</p>' +
+          '</section>' +
+          '<section class="utility-card">' +
+            '<div class="section-title">Code color legend</div>' +
+            '<div class="legend-grid">' +
+              '<span class="legend-chip"><span class="legend-dot legend-docs"></span>Docs / Markdown</span>' +
+              '<span class="legend-chip"><span class="legend-dot legend-script"></span>Scripts / Shell / Python</span>' +
+              '<span class="legend-chip"><span class="legend-dot legend-typed"></span>Typed / Compiled</span>' +
+              '<span class="legend-chip"><span class="legend-dot legend-data"></span>Data / Config / Diff</span>' +
+              '<span class="legend-chip"><span class="legend-dot legend-generic"></span>Fallback</span>' +
+            '</div>' +
+          '</section>';
+      };
+
+      const decorateMissionSections = (container) => {
+        const sections = [];
+        let current = null;
+        Array.from(container.childNodes).forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE && /^H[1-6]$/.test(node.nodeName)) {
+            if (current) {
+              sections.push(current);
+            }
+            current = { heading: node, nodes: [] };
+            return;
+          }
+          if (!current) {
+            current = { heading: null, nodes: [] };
+          }
+          current.nodes.push(node);
+        });
+        if (current) {
+          sections.push(current);
+        }
+
+        if (!sections.length) {
+          return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        sections.forEach((section, index) => {
+          const details = document.createElement('details');
+          const title = section.heading ? section.heading.textContent.trim() : (index === 0 ? 'Overview' : 'Section ' + (index + 1));
+          const id = section.heading && section.heading.id ? section.heading.id : ('mission-section-' + (index + 1));
+          details.className = 'mission-section';
+          details.dataset.sectionId = id;
+          details.id = id;
+          details.open = index === 0 || /summary|overview|mission board|recommendation|next steps|validation/i.test(title);
+
+          const summary = document.createElement('summary');
+          summary.innerHTML =
+            '<div class="mission-section-label">' +
+              '<span class="mission-section-index">' + String(index + 1).padStart(2, '0') + '</span>' +
+              '<span>' + escapeHtmlClient(title) + '</span>' +
+            '</div>' +
+            '<button type="button" class="section-anchor" data-copy-anchor="' + escapeHtmlClient(id) + '">Copy link</button>';
+
+          const body = document.createElement('div');
+          body.className = 'mission-section-body';
+          section.nodes.forEach((node) => {
+            body.appendChild(node);
+          });
+
+          details.appendChild(summary);
+          details.appendChild(body);
+          fragment.appendChild(details);
+        });
+
+        container.innerHTML = '';
+        container.appendChild(fragment);
+      };
+
+      const hydrateRenderedPane = (session) => {
+        const renderedPane = missionCanvas.querySelector('[data-rendered-pane]');
+        if (!renderedPane) {
+          return;
+        }
+
+        renderedPane.innerHTML = session.renderedHtml || '<p class="empty-state">No rendered response available yet.</p>';
+        decorateMissionSections(renderedPane);
+      };
+
+      const renderMissionCanvas = (session) => {
+        if (!session) {
+          missionCanvas.innerHTML =
+            '<div class="mission-empty">' +
+              '<div class="eyebrow">Ready lane</div>' +
+              '<h3>Run a mission and OrbitForge will shape the response into a bounded brief.</h3>' +
+              '<p>' + escapeHtmlClient(initialClientState.welcomeText) + '</p>' +
+              '<ul>' +
+                '<li>Use a preset for the fastest guided run.</li>' +
+                '<li>Switch runtime directly in the panel before launching.</li>' +
+                '<li>Use Split mode when you want polished output and raw transcript side by side.</li>' +
+              '</ul>' +
+            '</div>';
+          return;
+        }
+
+        const running = statusTone(session.status) === 'active';
+        if (running) {
+          missionCanvas.innerHTML =
+            '<div class="mission-live-card" data-section-id="mission-live" id="mission-live">' +
+              '<div class="mission-live-topbar">' +
+                '<div class="live-label"><span class="live-pulse"></span>Live transcript</div>' +
+                '<button type="button" class="live-copy" data-copy-session="raw">Copy live output</button>' +
+              '</div>' +
+              '<pre class="live-transcript">' + escapeHtmlClient(session.output || 'Waiting for provider stream...') + '</pre>' +
+            '</div>';
+          return;
+        }
+
+        if (renderMode === 'raw') {
+          missionCanvas.innerHTML =
+            '<section class="raw-pane">' +
+              '<div class="pane-topbar"><div class="live-label">Raw markdown</div><button type="button" class="live-copy" data-copy-session="raw">Copy raw</button></div>' +
+              '<pre class="raw-transcript">' + escapeHtmlClient(session.output || '') + '</pre>' +
+            '</section>';
+          return;
+        }
+
+        if (renderMode === 'split') {
+          missionCanvas.innerHTML =
+            '<div class="mission-view-grid split">' +
+              '<section class="render-pane">' +
+                '<div class="pane-topbar"><div class="live-label">Rendered mission</div><button type="button" class="live-copy" data-copy-session="rendered">Copy rendered text</button></div>' +
+                '<article class="mission-body" data-rendered-pane></article>' +
+              '</section>' +
+              '<section class="raw-pane">' +
+                '<div class="pane-topbar"><div class="live-label">Raw markdown</div><button type="button" class="live-copy" data-copy-session="raw">Copy raw</button></div>' +
+                '<pre class="raw-transcript">' + escapeHtmlClient(session.output || '') + '</pre>' +
+              '</section>' +
+            '</div>';
+          hydrateRenderedPane(session);
+          return;
+        }
+
+        missionCanvas.innerHTML =
+          '<section class="render-pane">' +
+            '<div class="pane-topbar"><div class="live-label">Rendered mission</div><button type="button" class="live-copy" data-copy-session="rendered">Copy rendered text</button></div>' +
+            '<article class="mission-body" data-rendered-pane></article>' +
+          '</section>';
+        hydrateRenderedPane(session);
+      };
 
       const renderSessions = () => {
         if (!sessions.length) {
           sessionTabs.innerHTML = '';
           sessionMeta.textContent = 'Start a mission to create a session tab.';
+          renderMissionHeader(null);
+          renderStepRail(null);
+          renderUtilityPanel(null);
+          renderMissionCanvas(null);
+          renderModeButtons();
           return;
         }
         sessionTabs.innerHTML = sessions
@@ -1945,8 +2765,12 @@ function renderPanel(
         if (activeSession) {
           activeSessionId = activeSession.id;
           sessionMeta.textContent = activeSession.source + ' • ' + (activeSession.status || 'running');
-          output.textContent = activeSession.output || '';
+          renderMissionHeader(activeSession);
+          renderStepRail(activeSession);
+          renderUtilityPanel(activeSession);
+          renderMissionCanvas(activeSession);
         }
+        renderModeButtons();
       };
 
       const upsertSession = ({ id, title, source }) => {
@@ -1955,7 +2779,17 @@ function renderPanel(
           existing.title = title || existing.title;
           existing.source = source || existing.source;
         } else {
-          sessions.unshift({ id, title, source, output: '', status: 'running' });
+          sessions.unshift({
+            id,
+            title,
+            source,
+            output: '',
+            renderedHtml: '',
+            headings: [],
+            codeBlocks: [],
+            status: 'running',
+            summary: '',
+          });
         }
         activeSessionId = id;
         renderSessions();
@@ -1970,26 +2804,41 @@ function renderPanel(
           session.output = '';
         }
         session.output += chunk;
+        session.status = 'running';
         if (session.id === activeSessionId) {
-          output.textContent = session.output;
+          renderMissionHeader(session);
+          renderStepRail(session);
+          renderMissionCanvas(session);
         }
       };
 
-      const finalizeSession = ({ id, status, outputText, summary }) => {
+      const finalizeSession = ({ id, status, outputText, summary, renderedHtml, headings, codeBlocks }) => {
         const session = getSession(id);
         if (!session) {
           return;
         }
         session.status = status || session.status;
-        if (outputText && !session.output) {
+        if (typeof outputText === 'string' && outputText) {
           session.output = outputText;
         }
         if (summary) {
           session.summary = summary;
         }
+        if (typeof renderedHtml === 'string') {
+          session.renderedHtml = renderedHtml;
+        }
+        if (Array.isArray(headings)) {
+          session.headings = headings;
+        }
+        if (Array.isArray(codeBlocks)) {
+          session.codeBlocks = codeBlocks;
+        }
         if (session.id === activeSessionId) {
-          output.textContent = session.output;
           sessionMeta.textContent = session.source + ' • ' + session.status;
+          renderMissionHeader(session);
+          renderStepRail(session);
+          renderUtilityPanel(session);
+          renderMissionCanvas(session);
         }
       };
 
@@ -2025,7 +2874,6 @@ function renderPanel(
       document.getElementById('run').addEventListener('click', () => {
         clearLogs();
         setStatus('Running OrbitForge mission...');
-        output.textContent = 'Running OrbitForge...';
         const sessionId = 'session-' + Date.now();
         upsertSession({ id: sessionId, title: 'Mission', source: 'panel-mission' });
         vscode.postMessage({
@@ -2093,7 +2941,6 @@ function renderPanel(
         }
         if (action === 'rerun') {
           clearLogs();
-          output.textContent = 'Replaying OrbitForge mission...';
         }
         vscode.postMessage({
           type: 'historyAction',
@@ -2148,6 +2995,80 @@ function renderPanel(
         setStatus('Runtime model updated from detected options.');
       });
 
+      document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+
+        const renderToggle = target.closest('[data-render-mode]');
+        if (renderToggle) {
+          renderMode = renderToggle.dataset.renderMode || renderMode;
+          renderSessions();
+          return;
+        }
+
+        const stepTarget = target.closest('[data-step-target]');
+        if (stepTarget) {
+          const sectionId = stepTarget.dataset.stepTarget;
+          const section = missionCanvas.querySelector('[data-section-id="' + sectionId + '"]');
+          if (section instanceof HTMLDetailsElement) {
+            section.open = true;
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } else if (section) {
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          return;
+        }
+
+        const helper = target.closest('[data-run-helper]');
+        if (helper) {
+          if (helper.dataset.runHelper === 'preset') {
+            const preset = document.querySelector('[data-preset-id="workspace-plan"]');
+            if (preset instanceof HTMLElement) {
+              preset.click();
+            }
+          }
+          if (helper.dataset.runHelper === 'runtime') {
+            document.getElementById('refreshRuntime').click();
+          }
+          return;
+        }
+
+        const copyAnchor = target.closest('[data-copy-anchor]');
+        if (copyAnchor) {
+          event.preventDefault();
+          event.stopPropagation();
+          copyText('#' + (copyAnchor.dataset.copyAnchor || ''), 'Section link copied.');
+          return;
+        }
+
+        const copyCode = target.closest('[data-copy-code]');
+        if (copyCode) {
+          const session = getActiveSession();
+          if (!session) {
+            return;
+          }
+          const block = (session.codeBlocks || []).find((entry) => entry.id === copyCode.dataset.copyCode);
+          copyText(block ? block.content : '', 'Code block copied.');
+          return;
+        }
+
+        const copySession = target.closest('[data-copy-session]');
+        if (copySession) {
+          const session = getActiveSession();
+          if (!session) {
+            return;
+          }
+          if (copySession.dataset.copySession === 'rendered') {
+            const renderedPane = missionCanvas.querySelector('[data-rendered-pane]');
+            copyText(renderedPane ? renderedPane.innerText : session.output, 'Rendered mission copied.');
+            return;
+          }
+          copyText(session.output || '', 'Raw mission copied.');
+        }
+      });
+
       window.addEventListener('message', (event) => {
         const message = event.data;
         if (message.type === 'sessionStart') {
@@ -2158,7 +3079,10 @@ function renderPanel(
             id: message.sessionId || activeSessionId,
             status: message.status || 'complete',
             outputText: message.output,
-            summary: message.summary
+            summary: message.summary,
+            renderedHtml: message.renderedHtml,
+            headings: message.headings,
+            codeBlocks: message.codeBlocks
           });
           setStatus(message.status || 'Run complete.');
         }
@@ -2204,6 +3128,8 @@ function renderPanel(
           updateSessionOutput(message.sessionId || activeSessionId, message.text || '', Boolean(message.reset));
         }
       });
+
+      renderSessions();
     </script>
   </body>
 </html>`
@@ -2261,6 +3187,41 @@ export function activate(context: vscode.ExtensionContext) {
     panel.webview.postMessage({
       type: 'timeline',
       html: renderTimeline(stage),
+    })
+  }
+
+  const postRenderedResult = async (
+    panel: vscode.WebviewPanel,
+    payload: {
+      sessionId?: string
+      title?: string
+      summary?: string
+      status?: string
+      output: string
+      renderedHtml?: string
+      headings?: MissionHeading[]
+      codeBlocks?: MissionCodeBlock[]
+    }
+  ) => {
+    const rendered =
+      payload.renderedHtml && payload.headings && payload.codeBlocks
+        ? {
+            renderedHtml: payload.renderedHtml,
+            headings: payload.headings,
+            codeBlocks: payload.codeBlocks,
+          }
+        : await renderMissionOutput(payload.output)
+
+    panel.webview.postMessage({
+      type: 'result',
+      sessionId: payload.sessionId,
+      title: payload.title,
+      summary: payload.summary,
+      status: payload.status,
+      output: payload.output,
+      renderedHtml: rendered.renderedHtml,
+      headings: rendered.headings,
+      codeBlocks: rendered.codeBlocks,
     })
   }
 
@@ -2348,13 +3309,15 @@ export function activate(context: vscode.ExtensionContext) {
       } else {
         await streamOutputToPanel(panel, sessionId, result.output)
       }
-      panel.webview.postMessage({
-        type: 'result',
+      await postRenderedResult(panel, {
         sessionId,
         title: mission.title,
         summary: result.summary,
         status: `Mission complete using ${result.contextLabel.toLowerCase()} context.`,
         output: result.output,
+        renderedHtml: result.renderedHtml,
+        headings: result.headings,
+        codeBlocks: result.codeBlocks,
       })
       await postPanelState(panel, runtimeSettings)
       pushTimeline(panel, 'complete')
@@ -2363,8 +3326,7 @@ export function activate(context: vscode.ExtensionContext) {
         type: 'log',
         entry: 'Run failed before completion.',
       })
-      panel.webview.postMessage({
-        type: 'result',
+      await postRenderedResult(panel, {
         status: 'Run failed.',
         output: error instanceof Error ? error.message : 'OrbitForge request failed.',
       })
@@ -2377,8 +3339,7 @@ export function activate(context: vscode.ExtensionContext) {
     const value = args.join(' ').trim()
 
     if (command === '/help') {
-      panel.webview.postMessage({
-        type: 'result',
+      await postRenderedResult(panel, {
         status: 'Slash command reference loaded.',
         output: [
           'OrbitForge slash commands:',
@@ -2410,8 +3371,7 @@ export function activate(context: vscode.ExtensionContext) {
         type: 'history',
         html: renderHistoryCards(getMissionHistory(context)),
       })
-      panel.webview.postMessage({
-        type: 'result',
+      await postRenderedResult(panel, {
         status: 'Loaded recent mission history.',
         output: formatHistoryText(getMissionHistory(context)),
       })
@@ -2424,8 +3384,7 @@ export function activate(context: vscode.ExtensionContext) {
         type: 'pins',
         html: renderPinnedPresetCards(pins),
       })
-      panel.webview.postMessage({
-        type: 'result',
+      await postRenderedResult(panel, {
         status: 'Pinned presets refreshed.',
         output: pins.length ? `Pinned presets: ${pins.join(', ')}` : 'No pinned presets yet.',
       })
@@ -2435,8 +3394,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (command === '/export') {
       const format = value === 'json' ? 'json' : 'md'
       await exportMissionHistory(context, format)
-      panel.webview.postMessage({
-        type: 'result',
+      await postRenderedResult(panel, {
         status: 'History export complete.',
         output: `Mission history exported as ${format.toUpperCase()}.`,
       })
@@ -2445,8 +3403,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     if (command === '/branch') {
       const scaffold = await createBranchFromPrompt(value || 'orbitforge-work')
-      panel.webview.postMessage({
-        type: 'result',
+      await postRenderedResult(panel, {
         status: 'Branch scaffold ready.',
         output: `Branch: ${scaffold.branch}\nCommit: ${scaffold.commit}`,
       })
@@ -2461,8 +3418,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (command === '/pin') {
       const preset = findPreset(value)
       if (!preset) {
-        panel.webview.postMessage({
-          type: 'result',
+        await postRenderedResult(panel, {
           status: 'Preset not found.',
           output: `Could not find an OrbitForge preset for "${value}".`,
         })
@@ -2474,8 +3430,7 @@ export function activate(context: vscode.ExtensionContext) {
         type: 'pins',
         html: renderPinnedPresetCards(pins),
       })
-      panel.webview.postMessage({
-        type: 'result',
+      await postRenderedResult(panel, {
         status: 'Preset pinned.',
         output: `${preset.label} pinned to the panel.`,
       })
@@ -2485,8 +3440,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (command === '/unpin') {
       const preset = findPreset(value)
       if (!preset) {
-        panel.webview.postMessage({
-          type: 'result',
+        await postRenderedResult(panel, {
           status: 'Preset not found.',
           output: `Could not find an OrbitForge preset for "${value}".`,
         })
@@ -2498,8 +3452,7 @@ export function activate(context: vscode.ExtensionContext) {
         type: 'pins',
         html: renderPinnedPresetCards(pins),
       })
-      panel.webview.postMessage({
-        type: 'result',
+      await postRenderedResult(panel, {
         status: 'Preset unpinned.',
         output: `${preset.label} removed from pinned presets.`,
       })
@@ -2510,8 +3463,7 @@ export function activate(context: vscode.ExtensionContext) {
       const preset = findPreset(value)
 
       if (!preset) {
-        panel.webview.postMessage({
-          type: 'result',
+        await postRenderedResult(panel, {
           status: 'Preset not found.',
           output: `Could not find an OrbitForge preset for "${value}". Try /help for valid commands.`,
         })
@@ -2526,8 +3478,7 @@ export function activate(context: vscode.ExtensionContext) {
         contextScope: preset.contextScope,
         status: `${preset.label} loaded into the composer.`,
       })
-      panel.webview.postMessage({
-        type: 'result',
+      await postRenderedResult(panel, {
         status: `Preset ${preset.label} loaded.`,
         output: `${preset.label}\n\n${preset.summary}\n\nRun Mission to execute it.`,
       })
@@ -2568,8 +3519,7 @@ export function activate(context: vscode.ExtensionContext) {
       const blueprint = findBlueprint(value)
 
       if (!blueprint) {
-        panel.webview.postMessage({
-          type: 'result',
+        await postRenderedResult(panel, {
           status: 'Blueprint not found.',
           output: `Could not find an OrbitForge blueprint for "${value}".`,
         })
@@ -2596,8 +3546,7 @@ export function activate(context: vscode.ExtensionContext) {
           : history.find((item) => item.id === value || normalizeLookup(item.title) === normalizeLookup(value))
 
       if (!entry) {
-        panel.webview.postMessage({
-          type: 'result',
+        await postRenderedResult(panel, {
           status: 'History entry not found.',
           output: 'OrbitForge could not find that saved mission. Run /history to inspect what is available.',
         })
@@ -2686,8 +3635,7 @@ export function activate(context: vscode.ExtensionContext) {
           await config.update('agentMode', panelRuntimeSettings.agentMode, vscode.ConfigurationTarget.Global)
           await config.update('workflow', panelRuntimeSettings.workflow, vscode.ConfigurationTarget.Global)
           await postPanelState(panel, panelRuntimeSettings)
-          panel.webview.postMessage({
-            type: 'result',
+          await postRenderedResult(panel, {
             status: 'Runtime saved.',
             output: `Provider: ${panelRuntimeSettings.provider}\nBase URL: ${panelRuntimeSettings.baseUrl}\nModel: ${panelRuntimeSettings.model}`,
           })
@@ -2713,8 +3661,7 @@ export function activate(context: vscode.ExtensionContext) {
           const entry = getMissionHistory(context).find((item) => item.id === message.historyId)
 
           if (!entry) {
-            panel.webview.postMessage({
-              type: 'result',
+            await postRenderedResult(panel, {
               status: 'History entry missing.',
               output: 'That OrbitForge mission is no longer available in this workspace.',
             })
@@ -2733,8 +3680,7 @@ export function activate(context: vscode.ExtensionContext) {
               contextScope: entry.contextScope,
               status: `${entry.title} restored into the composer.`,
             })
-            panel.webview.postMessage({
-              type: 'result',
+            await postRenderedResult(panel, {
               status: 'Mission restored.',
               output: `${entry.title}\n\n${entry.summary}\n\nRun Mission to execute the restored configuration.`,
             })

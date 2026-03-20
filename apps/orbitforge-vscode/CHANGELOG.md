@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0
+
+- upgraded the panel into an adaptive pro mission client with a bounded result shell, sticky step rail, and utility sidecards
+- added host-side markdown rendering with syntax-aware code blocks and language-family styling
+- added rendered, raw, and split mission views plus local copy actions for code blocks, anchors, and full mission output
+- added renderer tests for headings, markdown structures, code families, unknown language fallback, and lane error output
+
 ## 0.9.0
 
 - routed the main VS Code commands into the interactive OrbitForge panel instead of opening markdown-only result documents
