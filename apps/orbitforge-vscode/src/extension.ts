@@ -2011,6 +2011,15 @@ function renderPanel(
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         color: var(--text);
       }
+      .live-transcript {
+        max-height: 560px;
+        overflow: auto;
+        scroll-behavior: smooth;
+      }
+      .raw-transcript {
+        max-height: 560px;
+        overflow: auto;
+      }
       .mission-view-grid {
         display: grid;
         gap: 16px;
@@ -2682,6 +2691,16 @@ function renderPanel(
         decorateMissionSections(renderedPane);
       };
 
+      const scrollLiveTranscriptToBottom = () => {
+        const transcript = missionCanvas.querySelector('.live-transcript');
+        if (!(transcript instanceof HTMLElement)) {
+          return;
+        }
+        requestAnimationFrame(() => {
+          transcript.scrollTop = transcript.scrollHeight;
+        });
+      };
+
       const renderMissionCanvas = (session) => {
         if (!session) {
           missionCanvas.innerHTML =
@@ -2708,6 +2727,7 @@ function renderPanel(
               '</div>' +
               '<pre class="live-transcript">' + escapeHtmlClient(session.output || 'Waiting for provider stream...') + '</pre>' +
             '</div>';
+          scrollLiveTranscriptToBottom();
           return;
         }
 
